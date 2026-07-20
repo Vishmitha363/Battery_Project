@@ -1,0 +1,15 @@
+{
+    "name": "BNC Motors - BMS Live Dashboard",
+    "short_name": "BMS Dashboard",
+    "start_url": "login.html",
+    "display": "standalone",
+    "background_color": "#0a1120",
+    "theme_color": "#0e7490",
+    "icons": [
+        {
+            "src": "bnc-logo.png",
+            "sizes": "67x38",
+            "type": "image/png"
+        }
+    ]
+}

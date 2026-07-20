@@ -1,0 +1,1281 @@
+:root{
+
+--bg:#eef2f8;
+--surface:#ffffff;
+--text:#1b2430;
+--text-dim:#64748b;
+--cyan:#0e7490;
+--blue:#2f7dff;
+--amber:#d97706;
+--border:#e2e8f0;
+--dark:#1b2430;
+
+/* Brand panel (left half) — bright accents for its dark blue background */
+--brand-accent:#00e5ff;
+--brand-dim:#9fb3c8;
+
+}
+
+*{
+margin:0;
+padding:0;
+box-sizing:border-box;
+font-family:Poppins,sans-serif;
+}
+
+html,body{
+
+height:100%;
+
+}
+
+.login-page{
+
+display:flex;
+
+min-height:100vh;
+
+position:relative;
+
+/* The dark engineering-grid backdrop now spans the ENTIRE page, not
+   just the left half — the login card floats as a glass overlay on
+   top of it instead of sitting over a plain gray void. */
+background:
+    radial-gradient(circle at 15% 10%,rgba(0,229,255,.14),transparent 45%),
+    radial-gradient(circle at 85% 90%,rgba(217,119,6,.10),transparent 45%),
+    linear-gradient(160deg,#060b16 0%,#0a1120 55%,#0d2438 100%);
+
+}
+
+.login-page::before{
+
+content:"";
+
+position:absolute;
+
+inset:0;
+
+background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),
+                  linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);
+
+background-size:32px 32px;
+
+pointer-events:none;
+
+}
+
+/* ==========================================
+   BRAND PANEL (LEFT)
+========================================== */
+
+.brand-panel{
+
+flex:0 0 44%;
+
+position:relative;
+
+z-index:1;
+
+overflow:hidden;
+
+padding:60px;
+
+display:flex;
+
+flex-direction:column;
+
+justify-content:space-between;
+
+color:#ffffff;
+
+}
+
+.brand-watermark{
+
+position:absolute;
+
+width:640px;
+
+height:auto;
+
+right:-160px;
+
+bottom:-40px;
+
+opacity:.05;
+
+transform:rotate(-8deg);
+
+pointer-events:none;
+
+object-fit:contain;
+
+}
+
+.brand-content{
+
+position:relative;
+
+z-index:1;
+
+}
+
+.brand-logo{
+
+width:74px;
+
+height:74px;
+
+border-radius:20px;
+
+background:linear-gradient(135deg,#16233a,#0a1526);
+
+border:1px solid rgba(0,229,255,.25);
+
+display:flex;
+
+justify-content:center;
+
+align-items:center;
+
+margin-bottom:28px;
+
+box-shadow:0 0 35px rgba(0,229,255,.45);
+
+}
+
+.brand-logo img{
+
+width:46px;
+
+height:auto;
+
+object-fit:contain;
+
+}
+
+.brand-eyebrow{
+
+color:var(--amber);
+
+font-size:12px;
+
+font-weight:600;
+
+letter-spacing:2px;
+
+text-transform:uppercase;
+
+margin-bottom:14px;
+
+}
+
+.brand-content h1{
+
+font-size:38px;
+
+font-weight:800;
+
+letter-spacing:1px;
+
+margin-bottom:10px;
+
+line-height:1.1;
+
+color:#ffffff;
+
+}
+
+.brand-content h1 span{
+
+color:var(--brand-accent);
+
+}
+
+.brand-tagline{
+
+color:var(--brand-dim);
+
+font-size:15px;
+
+margin-bottom:38px;
+
+}
+
+.brand-features{
+
+list-style:none;
+
+margin-bottom:40px;
+
+}
+
+.brand-features li{
+
+display:flex;
+
+align-items:center;
+
+gap:14px;
+
+margin-bottom:16px;
+
+font-size:15px;
+
+color:#dbe6f2;
+
+}
+
+.brand-features li span{
+
+width:36px;
+
+height:36px;
+
+border-radius:8px;
+
+background:rgba(255,255,255,.08);
+
+border:1px solid rgba(255,255,255,.12);
+
+display:flex;
+
+justify-content:center;
+
+align-items:center;
+
+font-size:17px;
+
+flex-shrink:0;
+
+}
+
+.brand-stats{
+
+display:flex;
+
+gap:28px;
+
+padding-top:26px;
+
+border-top:1px solid rgba(255,255,255,.12);
+
+}
+
+.brand-stats div{
+
+display:flex;
+
+flex-direction:column;
+
+}
+
+.brand-stats strong{
+
+font-size:20px;
+
+color:var(--brand-accent);
+
+font-weight:700;
+
+}
+
+.brand-stats small{
+
+color:var(--brand-dim);
+
+font-size:11px;
+
+letter-spacing:.5px;
+
+margin-top:4px;
+
+}
+
+.brand-footer{
+
+position:relative;
+
+z-index:1;
+
+font-size:12px;
+
+color:#5a6b80;
+
+}
+
+/* ==========================================
+   FORM PANEL (RIGHT)
+========================================== */
+
+.form-panel{
+
+flex:1;
+
+position:relative;
+
+z-index:1;
+
+display:flex;
+
+align-items:center;
+
+justify-content:center;
+
+padding:40px;
+
+}
+
+.login-box{
+
+width:100%;
+
+max-width:400px;
+
+/* Semi-transparent white lets the grid subtly show through */
+background:rgba(255,255,255,.85);
+
+backdrop-filter:blur(16px);
+
+-webkit-backdrop-filter:blur(16px);
+
+padding:48px 40px;
+
+border-radius:24px;
+
+box-shadow:0 20px 40px rgba(0,0,0,.1);
+
+border:1px solid rgba(255,255,255,.5);
+
+animation:riseIn .5s ease;
+
+}
+
+@keyframes riseIn{
+
+from{ opacity:0; transform:translateY(16px); }
+to{ opacity:1; transform:translateY(0); }
+
+}
+
+.login-box h2{
+
+color:var(--text);
+
+font-size:27px;
+
+font-weight:700;
+
+margin-bottom:6px;
+
+}
+
+.subtitle{
+
+color:var(--text-dim);
+
+font-size:14px;
+
+margin-bottom:30px;
+
+}
+
+.input-box{
+
+margin-bottom:20px;
+
+}
+
+.input-box label{
+
+display:block;
+
+font-size:13px;
+
+font-weight:600;
+
+color:var(--text);
+
+margin-bottom:6px;
+
+}
+
+.field-wrap{
+
+position:relative;
+
+display:flex;
+
+align-items:center;
+
+}
+
+.field-icon{
+
+position:absolute;
+
+left:14px;
+
+font-size:15px;
+
+opacity:.55;
+
+pointer-events:none;
+
+}
+
+/* Standardized, sleek inputs — plain and uncluttered */
+.field-wrap input{
+
+width:100%;
+
+padding:14px 16px 14px 42px;
+
+border:1px solid #e2e8f0;
+
+outline:none;
+
+border-radius:12px;
+
+background:#f8fafc;
+
+color:var(--text);
+
+font-size:14px;
+
+transition:all .2s ease;
+
+}
+
+.field-wrap input:focus{
+
+border-color:#00d2ff;
+
+box-shadow:0 0 0 3px rgba(0,210,255,.15);
+
+background:#ffffff;
+
+}
+
+.field-wrap input::placeholder{
+
+color:#a4afbd;
+
+}
+
+/* Baud rate picker — matched to the text fields above it */
+.field-wrap select{
+
+width:100%;
+
+padding:14px 16px 14px 42px;
+
+border:1px solid #e2e8f0;
+
+outline:none;
+
+border-radius:12px;
+
+background:#f8fafc;
+
+color:var(--text);
+
+font-size:14px;
+
+font-family:inherit;
+
+cursor:pointer;
+
+transition:all .2s ease;
+
+}
+
+.field-wrap select:focus{
+
+border-color:#00d2ff;
+
+box-shadow:0 0 0 3px rgba(0,210,255,.15);
+
+background:#ffffff;
+
+}
+
+.toggle-pass{
+
+position:absolute;
+
+right:6px;
+
+width:auto;
+
+padding:6px 10px;
+
+background:transparent;
+
+border:none;
+
+box-shadow:none;
+
+font-size:15px;
+
+cursor:pointer;
+
+}
+
+.toggle-pass:hover{
+
+transform:none;
+
+box-shadow:none;
+
+background:rgba(0,0,0,.05);
+
+border-radius:8px;
+
+}
+
+/* No colored container box — reads as a plain, clean form field,
+   consistent with "Your Name" above it. Only status indicators
+   (USB connection) keep a distinct background treatment. */
+.key-panel{
+
+margin-bottom:20px;
+
+text-align:left;
+
+}
+
+.key-panel h3{
+
+color:var(--text);
+
+font-size:13px;
+
+font-weight:600;
+
+margin-bottom:6px;
+
+}
+
+.key-hint{
+
+font-size:12px;
+
+color:var(--text-dim);
+
+margin-top:8px;
+
+line-height:1.5;
+
+}
+
+.reset-key{
+
+width:auto;
+
+background:transparent;
+
+color:var(--text-dim);
+
+border:none;
+
+box-shadow:none;
+
+padding:4px 0;
+
+font-size:12px;
+
+font-weight:600;
+
+text-decoration:underline;
+
+cursor:pointer;
+
+}
+
+.reset-key:hover{
+
+color:var(--text);
+
+transform:none;
+
+box-shadow:none;
+
+}
+
+button{
+
+width:100%;
+
+padding:14px;
+
+border:none;
+
+border-radius:10px;
+
+font-size:15px;
+
+letter-spacing:.5px;
+
+cursor:pointer;
+
+font-weight:700;
+
+background:linear-gradient(135deg,#00b4db,#0083b0);
+
+color:#ffffff;
+
+transition:.25s;
+
+}
+
+button:hover{
+
+transform:translateY(-1px);
+
+box-shadow:0 10px 24px rgba(0,180,219,.35);
+
+}
+
+#message{
+
+margin-top:16px;
+
+font-size:14px;
+
+font-weight:600;
+
+color:#dc2626;
+
+text-align:center;
+
+}
+
+/* USB connection — a status pill on top, and a separate plain
+   action button below it, matching the dashboard's own Real Device
+   indicator so the two pages read as the same product. */
+.device-status{
+
+margin-top:20px;
+
+display:flex;
+
+align-items:center;
+
+justify-content:center;
+
+gap:8px;
+
+padding:10px;
+
+background:#f1f5f9;
+
+border:1px solid var(--border);
+
+border-radius:10px;
+
+font-size:12px;
+
+font-weight:700;
+
+letter-spacing:.3px;
+
+color:var(--text-dim);
+
+}
+
+.connect-real-btn{
+
+margin:10px 0 20px;
+
+background:#f8fafc;
+
+color:var(--text);
+
+border:1px solid var(--border);
+
+border-radius:12px;
+
+font-weight:600;
+
+display:flex;
+
+align-items:center;
+
+justify-content:center;
+
+gap:12px;
+
+}
+
+.connect-real-btn:hover{
+
+background:#eef2f8;
+
+border-color:#00b4db;
+
+box-shadow:0 8px 20px rgba(0,180,219,.15);
+
+transform:translateY(-1px);
+
+}
+
+.connect-real-btn .btn-icon{
+
+width:26px;
+
+height:26px;
+
+flex-shrink:0;
+
+border-radius:8px;
+
+background:rgba(0,180,219,.12);
+
+display:flex;
+
+align-items:center;
+
+justify-content:center;
+
+font-size:13px;
+
+}
+
+/* Secondary path — no device on hand, proceed on simulated data.
+   Deliberately quieter than Connect Real Device so it doesn't compete
+   with the primary path, but still clearly clickable. */
+.automatic-values-btn{
+
+margin:0 0 20px;
+
+background:transparent;
+
+color:var(--text-dim);
+
+border:1px dashed var(--border);
+
+border-radius:12px;
+
+font-weight:600;
+
+display:flex;
+
+align-items:center;
+
+justify-content:center;
+
+gap:12px;
+
+}
+
+.automatic-values-btn:hover{
+
+background:#f8fafc;
+
+border-color:#94a3b8;
+
+color:var(--text);
+
+box-shadow:none;
+
+transform:none;
+
+}
+
+.automatic-values-btn.selected{
+
+background:rgba(22,163,74,.08);
+
+border:1px solid #16a34a;
+
+color:#16a34a;
+
+}
+
+.automatic-values-btn .btn-icon{
+
+width:26px;
+
+height:26px;
+
+flex-shrink:0;
+
+border-radius:8px;
+
+background:rgba(100,116,139,.12);
+
+display:flex;
+
+align-items:center;
+
+justify-content:center;
+
+font-size:13px;
+
+}
+
+.status-dot{
+
+width:8px;
+
+height:8px;
+
+border-radius:50%;
+
+flex-shrink:0;
+
+}
+
+.status-dot.disconnected{
+
+background-color:#ef4444;
+
+box-shadow:0 0 8px #ef4444;
+
+animation:usbPulse 1.6s ease-in-out infinite;
+
+}
+
+.status-dot.connected{
+
+background-color:#22c55e;
+
+box-shadow:0 0 8px #22c55e;
+
+animation:none;
+
+}
+
+@keyframes usbPulse{
+
+0%,100%{ opacity:1; }
+50%{ opacity:.5; }
+
+}
+
+#loginBtn:disabled{
+
+background:var(--border);
+
+color:#94a3b8;
+
+cursor:not-allowed;
+
+}
+
+#loginBtn:disabled:hover{
+
+transform:none;
+
+box-shadow:none;
+
+}
+
+.register-text{
+
+margin-top:26px;
+
+text-align:center;
+
+font-size:14px;
+
+color:var(--text-dim);
+
+}
+
+.register-text a{
+
+color:var(--blue);
+
+font-weight:600;
+
+text-decoration:none;
+
+}
+
+.register-text a:hover{
+
+text-decoration:underline;
+
+}
+
+/* ==========================================
+   RESPONSIVE
+========================================== */
+
+@media(max-width:900px){
+
+.login-page{
+
+flex-direction:column;
+
+}
+
+.brand-panel{
+
+flex:0 0 auto;
+
+padding:40px 30px;
+
+}
+
+.brand-features,.brand-stats{
+
+display:none;
+
+}
+
+.form-panel{
+
+padding:30px 20px;
+
+}
+
+}
+
+/* ==========================================
+   CONNECT DEVICE OVERLAY
+   (a real OS/browser device picker still has
+   to open after this — that dialog itself
+   can't be restyled, this just eases into it)
+========================================== */
+
+.connect-overlay{
+
+display:none;
+
+position:fixed;
+
+inset:0;
+
+background:rgba(15,23,42,.55);
+
+backdrop-filter:blur(4px);
+
+z-index:9000;
+
+align-items:center;
+
+justify-content:center;
+
+padding:20px;
+
+}
+
+.connect-overlay.open{
+
+display:flex;
+
+}
+
+.connect-box{
+
+width:100%;
+
+max-width:380px;
+
+background:var(--surface);
+
+border-radius:20px;
+
+padding:36px 32px;
+
+text-align:center;
+
+box-shadow:0 30px 70px rgba(15,23,42,.35);
+
+animation:riseIn .3s ease;
+
+}
+
+.connect-icon{
+
+width:64px;
+
+height:64px;
+
+margin:0 auto 18px;
+
+border-radius:50%;
+
+background:linear-gradient(135deg,#1e293b,#0f172a);
+
+display:flex;
+
+align-items:center;
+
+justify-content:center;
+
+box-shadow:0 8px 24px rgba(15,23,42,.35);
+
+}
+
+/* Deep navy pill — matches BNC Motors' industrial-automotive vibe */
+.continue-btn{
+
+background:linear-gradient(135deg,#1e293b 0%,#0f172a 100%);
+
+}
+
+.continue-btn:hover{
+
+box-shadow:0 10px 24px rgba(15,23,42,.4);
+
+}
+
+.connect-box h3{
+
+color:var(--text);
+
+font-size:19px;
+
+font-weight:700;
+
+margin-bottom:10px;
+
+}
+
+.connect-box p{
+
+color:var(--text-dim);
+
+font-size:13px;
+
+line-height:1.6;
+
+margin-bottom:22px;
+
+}
+
+.connect-box button{
+
+margin-top:0;
+
+}
+
+.connect-cancel{
+
+margin-top:10px !important;
+
+background:transparent;
+
+color:var(--text-dim);
+
+box-shadow:none;
+
+}
+
+.connect-cancel:hover{
+
+background:rgba(0,0,0,.04);
+
+box-shadow:none;
+
+transform:none;
+
+color:var(--text);
+
+}
+
+/* ==========================================
+   TOP TOAST (e.g. logout confirmation)
+========================================== */
+
+.top-toast{
+
+position:fixed;
+
+top:24px;
+
+left:50%;
+
+transform:translateX(-50%) translateY(-16px);
+
+z-index:10000;
+
+background:linear-gradient(135deg,#16a34a,#15803d);
+
+color:#ffffff;
+
+font-size:14px;
+
+font-weight:600;
+
+padding:14px 26px;
+
+border-radius:12px;
+
+box-shadow:0 12px 28px rgba(21,128,61,.35);
+
+opacity:0;
+
+pointer-events:none;
+
+transition:opacity .3s ease,transform .3s ease;
+
+}
+
+.top-toast.show{
+
+opacity:1;
+
+transform:translateX(-50%) translateY(0);
+
+}
+
+.top-toast.warning{
+
+background:linear-gradient(135deg,#f59e0b,#d97706);
+
+box-shadow:0 12px 28px rgba(217,119,6,.35);
+
+}
+
+/* ==========================================
+   POST-LOGIN SPLASH
+========================================== */
+
+.splash-overlay{
+
+display:none;
+
+position:fixed;
+
+inset:0;
+
+z-index:9999;
+
+flex-direction:column;
+
+align-items:center;
+
+justify-content:center;
+
+background:
+    radial-gradient(circle at 50% 30%,rgba(0,229,255,.10),transparent 55%),
+    linear-gradient(160deg,#060b16 0%,#0a1120 55%,#0d2438 100%);
+
+}
+
+.splash-overlay.show{
+
+display:flex;
+
+animation:splashFadeIn .4s ease;
+
+}
+
+@keyframes splashFadeIn{
+
+from{ opacity:0; }
+to{ opacity:1; }
+
+}
+
+.splash-logo{
+
+width:96px;
+
+height:96px;
+
+border-radius:24px;
+
+background:linear-gradient(135deg,#16233a,#0a1526);
+
+border:1px solid rgba(0,229,255,.3);
+
+display:flex;
+
+align-items:center;
+
+justify-content:center;
+
+box-shadow:0 0 50px rgba(0,229,255,.5);
+
+margin-bottom:26px;
+
+animation:splashPop .6s cubic-bezier(.34,1.56,.64,1);
+
+}
+
+.splash-logo img{
+
+width:58px;
+
+height:auto;
+
+object-fit:contain;
+
+}
+
+@keyframes splashPop{
+
+from{ transform:scale(.6); opacity:0; }
+to{ transform:scale(1); opacity:1; }
+
+}
+
+.splash-word{
+
+color:#ffffff;
+
+font-size:26px;
+
+font-weight:800;
+
+letter-spacing:2px;
+
+margin-bottom:8px;
+
+}
+
+.splash-word span{
+
+color:var(--brand-accent);
+
+}
+
+.splash-sub{
+
+color:var(--brand-dim);
+
+font-size:14px;
+
+margin-bottom:26px;
+
+}
+
+.splash-dots{
+
+display:flex;
+
+gap:8px;
+
+}
+
+.splash-dots span{
+
+width:9px;
+
+height:9px;
+
+border-radius:50%;
+
+background:var(--brand-accent);
+
+opacity:.3;
+
+animation:splashDotPulse 1.1s ease-in-out infinite;
+
+}
+
+.splash-dots span:nth-child(2){ animation-delay:.15s; }
+.splash-dots span:nth-child(3){ animation-delay:.3s; }
+
+@keyframes splashDotPulse{
+
+0%,100%{ opacity:.3; transform:scale(1); }
+50%{ opacity:1; transform:scale(1.3); }
+
+}

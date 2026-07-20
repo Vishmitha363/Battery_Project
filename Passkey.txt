@@ -1,0 +1,11 @@
+BNC MOTORS — BMS ACCESS PASSKEY
+================================
+
+Passkey:BNC123
+
+Keep this file private. Anyone who has this passkey can log in to
+the BMS dashboard. This is the ONLY passkey for this system — every
+authorized person logs in with this same key.
+
+If it needs to be changed, a new key and hash must be generated and
+the hash updated in login.js (MASTER_PASSKEY_HASH).

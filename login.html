@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>BNC Motors | BMS Login</title>
+
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='50' fill='%230a1526'/><image href='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEMAAAAmCAYAAACf8yaaAAAABHNCSVQICAgIfAhkiAAABW1JREFUaEPNmc1xWzcQx8NbTol9ziH0LbfYFYSuwHYFoSuIU0GoCiJXELqC2BWEriByBaEriHzLTfn/MIs34GqBh0fxidoZjEYP2A/89wMLcPHVmejm5ubpYrG4OpP6UO3iXMYIjI10v39IgJwbjGuBcXkuh3i93WDIk0sxv9BYaTzV4P+SCPk93tb4oE1etzYpeTvmtQ55k0i82Y5si+dHNvYQeR97hY+CIcUo/M1A6JXLuq3GhYwBoFtkYPykicdjwGVm8WDHWmM5wRCcspGOt2M8VTCk+JGY/9B4OSakMY8hpMFbv2HJvzG+15oDuCppKTb8PhEELw+n/CpdRG5IIRhUeq3+SwNAWkQIsubHkXWE7PMSkAKMd/q+rvFrHXM4pUWfNAnwPbYQJReRsFtgmHK8EAHxTt9Bdhd4mvV4kEFOewKQV6SNpR5gQxTRx5FxWgcIEVCf9X2LLdFpZM5caf6NxveB7K34XvvvB2A0IgIQQHQfGe2/2WZJDx8xe8l44sCA/Vm5KUtRHOKB+GJ2dJ9AkgUgG41vnZ2kLnMDDWCYAX9rZumYRnO6BpBk4r2fi/lkgBnIZjMNhpkdRA2pWhKp8LLXISWjydzpm3fOwd5KMLzhyCPPEXI0FRsfaoM1XJwMma6k55lFJqnhgaA2AUTzuG4ZWQEEeU+y3ASG9RD/OGFHR4Q3CvmlR/U/dcfXlVf6BhC+VjUL7BQvGSB78ZQpM0RlBsMb91HGr6YomrK26DHG2C5kx2Zs0ZR5O6b/dDxEx35haP0bTU5RMmWtdBKFyxGek0VmEKk7faPhy0T/cQkYawvPPEErfZdGaxSXoseI1nJirKIjc1Rw54JgzykTAGMrGWXFn80j2FqpT3kb9A+DI+YCJKod0rUADB8yKX86QZ68LOgxsgyOzpUGJwk5TYOGbbNQsO/vAOMgfwFoFu0mtFLAaOpogIiK1Hrfgx0+IxIY+cKUzL0HIzZSU/YY6eiUGXxj7lx2/HAOMGilf7E9p/okIPwd5JO++8brpAEbNH4pMsjL8pjpfl84xjrTx0bXGuiOWu9Z+xzsDhq/EIzn91C4qA+0whTKKAJuXaKOAb7FIzC4h5W6vyEyyrCFf1ZD7Gil5W69l5y88yyBCY73LwqAR4ABOqCUqfq+cArvWMNTey/JKjhWuSLMQkG9SEU830320lo+gqT29NSWBJ1fTcVsqWoNF+1EeSFM4GcwNposj7uDq+0pQAlODMTSeqPLv0bN1vgFZeGzgFhiTAYDlK6cUTypca2+E5knoofldAfRWGvkozbpKnsd8TOHwXdOm0pkDilZPu7Q/fmr7U7fWHzUo4oBUXu14jJ2HXSkg6dcNKWe5FjPVIA4OML9GyjKyksbuomY9JA7xRC7gxARKQQL+kA0lABrLWDnB5dkoL5x/JZPg4jYaNz62WHMLt/d2noik0enwdHR6zib92+FMFBQqbpNUOx0IrTXgZGpavvvrgFKTwgmZ1eAlNnQz+M095kmSQaOBcClWxg+E0RgUD+2GtFzPzIxMI+sA56VjVobXT2hXAgPPUYDEPTiIOoI4GBPJuxg86R9eWLk+ep7SesXNd+MOXC7/0X5m1a+uyboADQDBOeM/VDVY1Dzhb15Xbe830hLeXfpUZrXUB8AAu81SbpyeoY9htUQbPG/f4yJZh6HXMoO+KvU9XZhFX8tKasOY1BM+KKcDXZR0RUe/KBUMtvphB2MnkghEraMnhOxCwxnEIAwoKX93esvOczvH7uu3btF+VpQ9hgtOZZa1Kdco7Ap68YefgLlbzdNBqNb8hELOWK1gajoHSFtOstDA4P+Yzt9G6fheGhgfC0w/jvN1qZL+R89iYrP7OoPPAAAAABJRU5ErkJggg==' x='16' y='31' width='68' height='38.6'/></svg>">
+
+    <link rel="stylesheet" href="login.css">
+
+    <link rel="manifest" href="manifest.json">
+
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+</head>
+
+<body>
+
+<div class="top-toast" id="topToast"></div>
+
+<div class="login-page">
+
+    <!-- ================= BRAND PANEL ================= -->
+    <div class="brand-panel">
+
+        <!-- Watermark: real company logo, faint -->
+        <img class="brand-watermark" src="bnc-logo.png" alt="">
+
+        <div class="brand-content">
+
+            <div class="brand-logo">
+                <img src="bnc-logo.png" alt="BNC Motors logo">
+            </div>
+
+            <p class="brand-eyebrow">Electric Mobility · Powered by Data</p>
+
+            <h1>BNC <span>MOTORS</span></h1>
+
+            <p class="brand-tagline">Active Cell Balancing</p>
+
+            <ul class="brand-features">
+
+                <li><span>📊</span> Real-Time Cell Monitoring</li>
+
+                <li><span>⚖</span> Automatic Cell Balancing</li>
+
+                <li><span>🛡</span> Advanced Safety Protection</li>
+
+            </ul>
+
+            <div class="brand-stats">
+
+                <div><strong>1-64</strong><small>Cell Support</small></div>
+
+                <div><strong>24/7</strong><small>Live Sync</small></div>
+
+                <div><strong>ISO</strong><small>Safety Grade</small></div>
+
+            </div>
+
+        </div>
+
+        <p class="brand-footer">© 2026 BNC Motors. All Rights Reserved.</p>
+
+    </div>
+
+    <!-- ================= FORM PANEL ================= -->
+    <div class="form-panel">
+
+        <div class="login-box">
+
+
+            <form id="loginForm">
+
+                <!-- Owner Name -->
+
+                <div class="input-box">
+
+                    <label for="ownerName">Your Name</label>
+
+                    <div class="field-wrap">
+
+                        <span class="field-icon">👤</span>
+
+                        <input
+                            type="text"
+                            id="ownerName"
+                            placeholder="Enter your name"
+                            autocomplete="name">
+
+                    </div>
+
+                </div>
+
+                <!-- Passkey -->
+
+                <div class="key-panel" id="keyPanel"></div>
+
+                <!-- Must match the device's baud rate exactly — a mismatch
+                     connects fine but delivers unreadable bytes -->
+
+                <div class="input-box">
+
+                    <label for="baudRate">Baud Rate</label>
+
+                    <div class="field-wrap">
+
+                        <span class="field-icon">⚡</span>
+
+                        <select id="baudRate">
+                            <option value="9600">9600</option>
+                            <option value="19200">19200</option>
+                            <option value="38400">38400</option>
+                            <option value="57600">57600</option>
+                            <option value="115200" selected>115200</option>
+                            <option value="230400">230400</option>
+                        </select>
+
+                    </div>
+
+                </div>
+
+                <!-- USB Connection — status pill + separate action button,
+                     matching the dashboard's Real Device indicator -->
+
+                <div class="device-status" id="deviceStatus">
+                    <span class="status-dot disconnected" id="usbDot"></span>
+                    <span id="usbStatusLabel">Not Connected</span>
+                </div>
+
+                <button
+                    type="button"
+                    id="connectBtn"
+                    class="connect-real-btn"
+                    onclick="showConnectOverlay()">
+
+                    <span class="btn-icon">🔌</span> CONNECT REAL DEVICE
+
+                </button>
+
+                <!-- No BMS device on hand — proceed with simulated
+                     readings instead of a live connection -->
+                <button
+                    type="button"
+                    id="automaticValuesBtn"
+                    class="automatic-values-btn">
+
+                    <span class="btn-icon">📊</span> REMOTE MONITOR
+
+                </button>
+
+                <!-- Login / Generate Button -->
+
+                <button
+                    type="submit"
+                    id="loginBtn"
+                    disabled>
+
+                    LOGIN →
+
+                </button>
+
+            </form>
+
+            <div id="message"></div>
+
+        </div>
+
+    </div>
+
+</div>
+
+<!-- ================= CONNECT DEVICE OVERLAY ================= -->
+<div class="connect-overlay" id="connectOverlay">
+
+    <div class="connect-box">
+
+        <div class="connect-icon">
+            <svg viewBox="0 0 64 64" width="34" height="34">
+                <defs>
+                    <linearGradient id="usbBody" x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0%" stop-color="#cbd5e1"/>
+                        <stop offset="100%" stop-color="#64748b"/>
+                    </linearGradient>
+                    <linearGradient id="usbCable" x1="0" y1="0" x2="1" y2="0">
+                        <stop offset="0%" stop-color="#0f172a"/>
+                        <stop offset="100%" stop-color="#1e293b"/>
+                    </linearGradient>
+                </defs>
+                <rect x="2" y="27" width="14" height="10" rx="4" fill="url(#usbCable)"/>
+                <rect x="12" y="20" width="50" height="24" rx="10" fill="url(#usbBody)"/>
+                <rect x="22" y="27" width="10" height="10" rx="2" fill="#1e293b"/>
+                <rect x="42" y="27" width="10" height="10" rx="2" fill="#1e293b"/>
+            </svg>
+        </div>
+
+        <h3>Select Your BMS Device</h3>
+
+        <p>A system dialog will list your available ports. Select your BMS device (or <strong>"Communications Port (COM1)"</strong>) and click <strong>Connect</strong>.</p>
+
+        <button type="button" id="proceedConnectBtn" class="continue-btn">Continue →</button>
+
+        <button type="button" class="connect-cancel" id="cancelConnectBtn">Cancel</button>
+
+    </div>
+
+</div>
+
+<!-- ================= POST-LOGIN SPLASH ================= -->
+<div class="splash-overlay" id="splashOverlay">
+
+    <div class="splash-logo">
+        <img src="bnc-logo.png" alt="BNC Motors logo">
+    </div>
+
+    <div class="splash-word">BNC <span>MOTORS</span></div>
+
+    <p class="splash-sub">Loading your BMS dashboard…</p>
+
+    <div class="splash-dots">
+        <span></span><span></span><span></span>
+    </div>
+
+</div>
+
+<script src="login.js"></script>
+
+</body>
+
+</html>

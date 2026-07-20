@@ -1,0 +1,3514 @@
+/* ==========================================
+   GLOBAL
+========================================== */
+
+:root{
+
+--navy-900:#eef2f8;
+--navy-800:#f1f5f9;
+--navy-700:#ffffff;
+--navy-600:#f1f5f9;
+--cyan:#0e7490;
+--blue:#2f6fe0;
+--amber:#d97706;
+--pink:#db2777;
+--purple:#9333ea;
+--text:#1b2430;
+--text-dim:#64748b;
+--border:#e2e8f0;
+
+/* Eye-pleasant status palette — low cognitive fatigue for long
+   telemetry viewing sessions */
+--status-safe:#10b981;
+--status-safe-deep:#059669;
+--status-balancing:#0ea5e9;
+--status-alert:#ef4444;
+--status-neutral:#f59e0b;
+
+}
+
+*{
+    margin:0;
+    padding:0;
+    box-sizing:border-box;
+    font-family:"Poppins","Segoe UI",sans-serif;
+}
+
+body{
+
+    background:
+        radial-gradient(circle at 8% 5%,rgba(14,116,144,.12),transparent 42%),
+        radial-gradient(circle at 92% 12%,rgba(147,51,234,.08),transparent 40%),
+        radial-gradient(circle at 15% 95%,rgba(217,119,6,.10),transparent 42%),
+        radial-gradient(circle at 90% 100%,rgba(219,39,119,.07),transparent 40%),
+        var(--navy-900);
+
+    background-attachment:fixed;
+
+    color:var(--text);
+
+}
+
+.container{
+
+    width:96%;
+
+    /* Capped so the dashboard renders the same on a 1080p laptop and a
+       4K monitor — past this width it stops stretching and just centres,
+       instead of blowing every gauge up to a different size per system. */
+    max-width:1850px;
+
+    margin:10px auto;
+
+}
+
+/* ==========================================
+   HEADER
+========================================== */
+
+.header{
+
+    position:relative;
+
+    display:flex;
+
+    justify-content:space-between;
+
+    align-items:center;
+
+    padding:12px 22px;
+
+    background:var(--navy-700);
+
+    border:1px solid var(--border);
+
+    border-radius:16px;
+
+    box-shadow:0 4px 20px rgba(15,23,42,.06);
+
+    margin-bottom:12px;
+
+    overflow:hidden;
+
+}
+
+.header::before{
+
+    content:"";
+
+    position:absolute;
+
+    top:0;
+
+    left:0;
+
+    right:0;
+
+    height:4px;
+
+    background:linear-gradient(90deg,var(--cyan),var(--blue),var(--purple),var(--pink),var(--amber));
+
+}
+
+.brand-row{
+
+    display:flex;
+
+    align-items:center;
+
+    gap:10px;
+
+    margin-bottom:10px;
+
+}
+
+.header-logo-badge{
+
+    width:34px;
+
+    height:34px;
+
+    border-radius:10px;
+
+    background:linear-gradient(135deg,var(--cyan),var(--blue));
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:center;
+
+    flex-shrink:0;
+
+}
+
+.header-logo{
+
+    width:22px;
+
+    height:auto;
+
+    object-fit:contain;
+
+}
+
+.brand-word{
+
+    color:var(--cyan);
+
+    font-size:13px;
+
+    font-weight:700;
+
+    letter-spacing:2px;
+
+}
+
+.header-title{
+
+    position:absolute;
+
+    left:50%;
+
+    top:50%;
+
+    transform:translate(-50%,-50%);
+
+    color:var(--text);
+
+    font-size:26px;
+
+    font-weight:700;
+
+    letter-spacing:.5px;
+
+    white-space:nowrap;
+
+}
+
+#welcome{
+
+    margin-top:6px;
+
+    color:var(--text-dim);
+
+    font-size:14px;
+
+}
+
+.profile{
+
+    display:flex;
+
+    align-items:center;
+
+    gap:20px;
+
+}
+
+#profileName{
+
+    color:var(--cyan);
+
+    font-size:17px;
+
+    font-weight:600;
+
+}
+
+.logout-btn{
+
+    background:transparent;
+
+    color:#dc2626;
+
+    border:1px solid rgba(220,38,38,.3);
+
+    padding:10px 22px;
+
+    border-radius:10px;
+
+    cursor:pointer;
+
+    transition:.25s;
+
+    font-weight:600;
+
+}
+
+.logout-btn:hover{
+
+    background:rgba(220,38,38,.08);
+
+    box-shadow:0 4px 12px rgba(220,38,38,.15);
+
+}
+
+/* ==========================================
+   MAIN LAYOUT
+========================================== */
+
+.main-content{
+
+    display:flex;
+
+    gap:14px;
+
+    align-items:flex-start;
+
+    margin-bottom:12px;
+
+}
+
+/* ==========================================
+   LEFT PANEL
+========================================== */
+
+/* Left-column order: BMS Controls (0), then Voltage/Current/Power + quick
+   controls row, then Battery Statistics, then the Activity Log. */
+.left-column .tp-row{ order:1; }
+.left-column #stats{ order:2; }
+.left-column .activity-log{ order:3; }
+
+/* Quick-control buttons — a full-width row of three EQUAL-width buttons.
+   min-width:0 lets each shrink to the same 1/3 share; without it the
+   longest label (CURRENT ZERO) forces its button wider than the rest. */
+.tp-row .bottom-controls{
+
+    display:flex;
+
+    flex-direction:row;
+
+    gap:8px;
+
+}
+
+.tp-row .bottom-controls button{
+
+    flex:1 1 0;
+
+    min-width:0;
+
+    padding-left:6px;
+
+    padding-right:6px;
+
+    justify-content:center;
+
+}
+
+.left-column{
+
+    width:300px;
+
+    flex-shrink:0;
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:14px;
+
+}
+
+.left-panel{
+
+    background:var(--navy-700);
+
+    border:1px solid var(--border);
+
+    border-radius:12px;
+
+    padding:9px 10px;
+
+    box-shadow:0 4px 20px rgba(15,23,42,.06);
+
+}
+
+.left-panel h2{
+
+    text-align:center;
+
+    color:var(--cyan);
+
+    margin-bottom:8px;
+
+    font-size:13px;
+
+    letter-spacing:1px;
+
+}
+
+/* ==========================================
+   ACTIVITY LOG
+========================================== */
+
+.activity-log{
+
+    background:var(--navy-700);
+
+    border:1px solid var(--border);
+
+    border-radius:14px;
+
+    padding:14px;
+
+    box-shadow:0 4px 20px rgba(15,23,42,.06);
+
+}
+
+.log-header{
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:space-between;
+
+    margin-bottom:16px;
+
+}
+
+.activity-log h2{
+
+    color:var(--cyan);
+
+    font-size:15px;
+
+    letter-spacing:1px;
+
+}
+
+.log-header-actions{
+
+    display:flex;
+
+    gap:8px;
+
+}
+
+.log-export-btn,
+.log-clear-btn{
+
+    background:transparent;
+
+    border:1px solid var(--border);
+
+    color:var(--text-dim);
+
+    font-size:11px;
+
+    font-weight:700;
+
+    padding:6px 12px;
+
+    border-radius:8px;
+
+    cursor:pointer;
+
+    transition:.2s;
+
+    white-space:nowrap;
+
+}
+
+.log-export-btn:hover{
+
+    background:#f1f5f9;
+
+    color:var(--cyan);
+
+    border-color:var(--cyan);
+
+}
+
+.log-clear-btn:hover{
+
+    background:rgba(220,38,38,.08);
+
+    color:#dc2626;
+
+    border-color:#dc2626;
+
+}
+
+.log-tabs{
+
+    display:flex;
+
+    gap:8px;
+
+    margin-bottom:14px;
+
+}
+
+.log-tab-btn{
+
+    flex:1;
+
+    background:var(--navy-900);
+
+    border:1px solid var(--border);
+
+    color:var(--text-dim);
+
+    font-size:11px;
+
+    font-weight:700;
+
+    padding:8px;
+
+    border-radius:8px;
+
+    cursor:pointer;
+
+    transition:.2s;
+
+}
+
+.log-tab-btn:hover{
+
+    background:#eef2f8;
+
+    color:var(--text);
+
+}
+
+.log-tab-btn.active{
+
+    background:linear-gradient(135deg,var(--cyan),var(--blue));
+
+    color:#ffffff;
+
+    border-color:transparent;
+
+}
+
+.log-list{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:5px;
+
+    max-height:120px;
+
+    overflow-y:auto;
+
+}
+
+.log-empty{
+
+    text-align:center;
+
+    color:var(--text-dim);
+
+    font-size:12px;
+
+    padding:10px 0;
+
+}
+
+.log-entry{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:2px;
+
+    padding:8px 10px;
+
+    border-radius:8px;
+
+    background:var(--navy-600);
+
+    border-left:3px solid var(--border);
+
+    font-size:12px;
+
+    animation:logIn .2s ease;
+
+}
+
+@keyframes logIn{
+
+    from{ transform:translateY(-4px); opacity:0; }
+    to{ transform:translateY(0); opacity:1; }
+
+}
+
+.log-entry .log-time{
+
+    font-size:10px;
+
+    color:var(--text-dim);
+
+    letter-spacing:.3px;
+
+}
+
+.log-entry .log-message{
+
+    color:var(--text);
+
+    font-weight:600;
+
+}
+
+.log-entry.log-success{
+
+    border-left-color:var(--status-safe);
+
+}
+
+.log-entry.log-error{
+
+    border-left-color:var(--status-alert);
+
+}
+
+.log-entry.log-info{
+
+    border-left-color:var(--status-balancing);
+
+}
+
+.left-panel button{
+
+    width:100%;
+
+    margin-top:5px;
+
+    padding:5px 12px;
+
+    border:none;
+
+    border-radius:8px;
+
+    font-size:10.5px;
+
+    letter-spacing:.3px;
+
+    cursor:pointer;
+
+    font-weight:600;
+
+    transition:.25s;
+
+    display:flex;
+
+    align-items:center;
+
+    gap:10px;
+
+    white-space:nowrap;
+
+}
+
+.btn-icon{
+
+    width:18px;
+
+    height:18px;
+
+    flex-shrink:0;
+
+    border-radius:5px;
+
+    background:rgba(255,255,255,.25);
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:center;
+
+    font-size:11px;
+
+}
+
+/* START */
+
+.start-btn{
+
+    background:linear-gradient(90deg,#1fbf6a,#2ecc71);
+
+    color:white;
+
+}
+
+.start-btn:hover{
+
+    box-shadow:0 6px 18px rgba(46,204,113,.35);
+
+    transform:translateY(-1px);
+
+}
+
+.start-btn.running{
+
+    background:linear-gradient(90deg,#00c476,#1fbf6a);
+
+    animation:pulse 1s infinite;
+
+}
+
+/* STOP */
+
+.stop-btn{
+
+    background:linear-gradient(90deg,#e74c3c,#c0392b);
+
+    color:white;
+
+}
+
+.stop-btn:hover{
+
+    box-shadow:0 6px 18px rgba(231,76,60,.35);
+
+    transform:translateY(-1px);
+
+}
+
+/* DEVICE STATUS + FRAME FRESHNESS */
+
+.device-status{
+
+    display:flex;
+
+    align-items:center;
+
+    flex-wrap:wrap;
+
+    gap:6px;
+
+    margin-bottom:14px;
+
+    padding:8px 10px;
+
+    border-radius:8px;
+
+    border:1px solid var(--border);
+
+    background:var(--navy-600);
+
+    font-size:11px;
+
+    font-weight:700;
+
+    letter-spacing:.3px;
+
+    color:var(--text);
+
+}
+
+.status-dot{
+
+    width:9px;
+
+    height:9px;
+
+    border-radius:50%;
+
+    flex:none;
+
+}
+
+.status-dot.connected{
+
+    background:#16a34a;
+
+    box-shadow:0 0 0 3px rgba(22,163,74,.18);
+
+}
+
+.status-dot.disconnected{
+
+    background:#94a3b8;
+
+    box-shadow:0 0 0 3px rgba(148,163,184,.18);
+
+}
+
+.device-freshness{
+
+    font-weight:600;
+
+    letter-spacing:0;
+
+}
+
+.device-freshness.fresh{
+
+    color:#15803d;
+
+}
+
+/* A board that stopped talking must not look like a stalled balancer */
+
+.device-freshness.stale{
+
+    color:#b91c1c;
+
+}
+
+/* Bottom bar: the action buttons and the status indicators on ONE line —
+   controls on the left half, status badges on the right half. */
+
+.bottom-bar{
+
+    display:flex;
+
+    align-items:center;
+
+    flex-wrap:wrap;
+
+    gap:8px;
+
+    margin-bottom:6px;
+
+}
+
+/* Compact single-line toolbar: controls packed on the left, status
+   badges pushed to the right — a thin list instead of tall pill boxes. */
+.bottom-bar .bottom-controls,
+.bottom-bar .status-row{
+
+    flex:0 0 auto;
+
+    margin-bottom:0;
+
+}
+
+/* Status/warning indicators — a compact list pushed to the right edge. */
+
+.status-row{
+
+    display:flex;
+
+    gap:8px;
+
+}
+
+.status-row .alert-pin,
+.status-row .afe-status{
+
+    width:auto;
+
+    margin:0;
+
+    padding:4px 7px;
+
+    font-size:9px;
+
+    gap:4px;
+
+    justify-content:center;
+
+}
+
+/* Smaller status dots to match the narrower badges */
+.status-row .afe-dot,
+.status-row .alert-pin-dot{
+
+    width:7px;
+
+    height:7px;
+
+}
+
+/* AFE status badge — green when comm OK, red when it fails */
+
+.afe-status{
+
+    width:100%;
+
+    margin-bottom:12px;
+
+    padding:6px 8px;
+
+    border-radius:8px;
+
+    font-size:10px;
+
+    font-weight:700;
+
+    letter-spacing:.3px;
+
+    color:#fff;
+
+    display:flex;
+
+    align-items:center;
+
+    gap:5px;
+
+}
+
+.afe-dot{
+
+    width:10px;
+
+    height:10px;
+
+    border-radius:50%;
+
+    background:#fff;
+
+    flex:none;
+
+}
+
+.afe-status.ok{
+
+    background:#16a34a;
+
+    border:1px solid #15803d;
+
+}
+
+.afe-status.fail{
+
+    background:#dc2626;
+
+    border:1px solid #b91c1c;
+
+    animation:alertPinBlink 0.8s steps(1,end) infinite;
+
+}
+
+/* ALERT PIN — green normally, red when the watchdog warning arrives */
+
+.alert-pin{
+
+    width:100%;
+
+    margin-bottom:12px;
+
+    padding:6px 8px;
+
+    border:1px solid #15803d;
+
+    border-radius:8px;
+
+    background:#16a34a;
+
+    color:#fff;
+
+    font-size:10px;
+
+    font-weight:700;
+
+    letter-spacing:.3px;
+
+    display:flex;
+
+    align-items:center;
+
+    gap:8px;
+
+}
+
+.alert-pin-dot{
+
+    width:10px;
+
+    height:10px;
+
+    border-radius:50%;
+
+    background:#fff;
+
+    flex:none;
+
+}
+
+.alert-pin.alerted{
+
+    background:#dc2626;
+
+    border-color:#b91c1c;
+
+    animation:alertPinBlink 0.8s steps(1,end) infinite;
+
+}
+
+@keyframes alertPinBlink{
+
+    50%{ background:#7f1d1d; }
+
+}
+
+/* BALANCING START / STOP */
+
+.bal-start-btn{
+
+    background:linear-gradient(90deg,#0e7490,#0891b2);
+
+    color:white;
+
+}
+
+.bal-start-btn:hover{
+
+    box-shadow:0 6px 18px rgba(8,145,178,.35);
+
+    transform:translateY(-1px);
+
+}
+
+.bal-start-btn.running{
+
+    background:linear-gradient(90deg,#0891b2,#06b6d4);
+
+    animation:pulse 1s infinite;
+
+}
+
+.bal-stop-btn{
+
+    background:linear-gradient(90deg,#b45309,#d97706);
+
+    color:white;
+
+}
+
+.bal-stop-btn:hover{
+
+    box-shadow:0 6px 18px rgba(217,119,6,.35);
+
+    transform:translateY(-1px);
+
+}
+
+/* Names the pair being balanced; hidden until BALANCING START */
+
+.balancing-box{
+
+    margin-top:10px;
+
+    padding:9px;
+
+    text-align:center;
+
+    border-radius:10px;
+
+    border:1px solid rgba(8,145,178,.35);
+
+    background:rgba(8,145,178,.08);
+
+}
+
+.balancing-box h3{
+
+    color:var(--text-dim);
+
+    margin-bottom:5px;
+
+    font-size:11px;
+
+    letter-spacing:1px;
+
+}
+
+.balancing-list:empty{
+
+    display:none;
+
+}
+
+.balancing-row{
+
+    display:flex;
+
+    justify-content:space-between;
+
+    align-items:center;
+
+    gap:10px;
+
+    padding:4px 2px;
+
+    font-size:11.5px;
+
+    font-weight:700;
+
+    letter-spacing:.3px;
+
+}
+
+/* Amber leaving the cell, green arriving — same colours the cell cards
+   and their badges use, so the box and the grid read as one thing. */
+
+.balancing-row.discharging{
+
+    color:#fff;
+
+    background:#d97706;
+
+    border-radius:8px;
+
+    padding:5px 10px;
+
+}
+
+.balancing-row.charging{
+
+    color:#fff;
+
+    background:#16a34a;
+
+    border-radius:8px;
+
+    padding:5px 10px;
+
+}
+
+/* The two rows sit one above the other; this is the arrow between them
+   that makes the pair read as a transfer rather than a list. */
+
+.balancing-arrow{
+
+    text-align:center;
+
+    font-size:13px;
+
+    font-weight:700;
+
+    color:var(--text-dim);
+
+    padding:0;
+
+    line-height:1.1;
+
+}
+
+.balancing-row + .balancing-row{
+
+    margin-top:3px;
+
+}
+
+.balancing-note{
+
+    color:var(--text-dim);
+
+    margin-top:5px;
+
+    font-size:12px;
+
+}
+
+/* OTHER BUTTONS */
+
+.left-panel button:not(.start-btn):not(.stop-btn):not(.bal-start-btn):not(.bal-stop-btn):not(.alert-pin){
+
+    background:var(--navy-600);
+
+    color:var(--text);
+
+    border:1px solid var(--border);
+}
+
+.left-panel button:not(.start-btn):not(.stop-btn):not(.bal-start-btn):not(.bal-stop-btn) .btn-icon{
+
+    background:rgba(14,116,144,.12);
+
+}
+
+.left-panel button:not(.start-btn):not(.stop-btn):not(.bal-start-btn):not(.bal-stop-btn):not(.alert-pin):hover{
+
+    background:#e6edf5;
+
+    border-color:rgba(14,116,144,.35);
+
+    transform:translateY(-1px);
+
+}
+
+/* ==========================================
+   RIGHT PANEL
+========================================== */
+
+.right-panel{
+
+    flex:1;
+
+    min-width:0;
+
+}
+
+/* ==========================================
+   BATTERY CELL GRID
+========================================== */
+
+.grid{
+
+    display:grid;
+
+    grid-template-columns:repeat(4,1fr);
+
+    gap:10px;
+
+}
+
+.cell{
+
+    --c:#0e7490;
+
+    position:relative;
+
+    width:100%;
+
+    min-height:150px;
+
+    /* Neo-glass: frosted, semi-transparent, with a soft diagonal
+       highlight standing in for a 3D inner reflection bezel */
+    background:linear-gradient(135deg, rgba(255,255,255,.9) 0%, rgba(245,247,250,.7) 100%);
+
+    backdrop-filter:blur(12px);
+
+    -webkit-backdrop-filter:blur(12px);
+
+    border:1px solid rgba(255,255,255,.6);
+
+    border-radius:14px;
+
+    padding:9px 10px 8px;
+
+    text-align:center;
+
+    transition:all .3s cubic-bezier(.4,0,.2,1);
+
+    /* Multi-layered shadow simulates physical elevation and cast light */
+    box-shadow:
+        inset 1px 1px 0px rgba(255,255,255,.8),
+        0 4px 6px -1px rgba(0,0,0,.03),
+        0 20px 25px -5px rgba(15,23,42,.05);
+
+}
+
+.cell::after{
+
+    content:"";
+
+    position:absolute;
+
+    top:14px;
+
+    right:16px;
+
+    width:7px;
+
+    height:7px;
+
+    border-radius:50%;
+
+    background:var(--c);
+
+    box-shadow:0 0 8px var(--c);
+
+}
+
+.cell:hover{
+
+    transform:translateY(-6px);
+
+    box-shadow:
+        0 2px 4px rgba(15,23,42,.06),
+        0 18px 34px color-mix(in srgb, var(--c) 26%, transparent);
+
+}
+
+/* High / Low extreme badge — a compact pill sitting inside the box
+   (top-left corner) instead of floating above the card. */
+
+.cell-badge{
+
+    display:none;
+
+    position:absolute;
+
+    top:12px;
+
+    left:14px;
+
+    align-items:center;
+
+    font-size:10px;
+
+    font-weight:800;
+
+    letter-spacing:.5px;
+
+    padding:5px 10px;
+
+    border-radius:10px;
+
+    white-space:nowrap;
+
+    z-index:2;
+
+    animation:badgePop .25s ease;
+
+}
+
+@keyframes badgePop{
+
+    from{ transform:scale(.6); opacity:0; }
+    to{ transform:scale(1); opacity:1; }
+
+}
+
+/* Every cell keeps the same uniform frosted-glass background — status
+   is signalled by a gently pulsating glowing border instead of
+   recoloring the whole card, so the grid stays visually consistent. */
+
+.cell.cell-high{
+
+    --c:#ef4444 !important;
+
+    border-width:2px;
+
+    border-color:rgba(239,68,68,.5);
+
+    animation:gentlePulseRed 2s ease-in-out infinite;
+
+}
+
+@keyframes gentlePulseRed{
+
+    0%,100%{
+        box-shadow:
+            inset 1px 1px 0px rgba(255,255,255,.8),
+            inset 0 0 12px rgba(239,68,68,.06),
+            0 0 14px rgba(239,68,68,.3);
+    }
+
+    50%{
+        box-shadow:
+            inset 1px 1px 0px rgba(255,255,255,.8),
+            inset 0 0 12px rgba(239,68,68,.1),
+            0 0 26px rgba(239,68,68,.65);
+    }
+
+}
+
+.cell.cell-high .cell-badge{
+
+    display:inline-flex;
+
+    background:var(--status-alert);
+
+    color:#ffffff;
+
+    box-shadow:0 4px 10px rgba(239,68,68,.4);
+
+}
+
+.cell.cell-low{
+
+    --c:#10b981 !important;
+
+    border-width:2px;
+
+    border-color:rgba(16,185,129,.5);
+
+    animation:gentlePulseGreen 2s ease-in-out infinite;
+
+}
+
+@keyframes gentlePulseGreen{
+
+    0%,100%{
+        box-shadow:
+            inset 1px 1px 0px rgba(255,255,255,.8),
+            inset 0 0 12px rgba(16,185,129,.06),
+            0 0 14px rgba(16,185,129,.28);
+    }
+
+    50%{
+        box-shadow:
+            inset 1px 1px 0px rgba(255,255,255,.8),
+            inset 0 0 12px rgba(16,185,129,.1),
+            0 0 26px rgba(16,185,129,.6);
+    }
+
+}
+
+.cell.cell-low .cell-badge{
+
+    display:inline-flex;
+
+    background:linear-gradient(135deg,var(--status-safe),var(--status-safe-deep));
+
+    color:#ffffff;
+
+    box-shadow:0 4px 10px rgba(16,185,129,.4);
+
+}
+
+/* Over-voltage / balancing — same glow-border approach, layered on
+   top of (and independent from) the high/low extremes above. */
+
+.cell.ov-fault{
+
+    border-color:rgba(239,68,68,.4);
+
+    box-shadow:
+        inset 0 0 12px rgba(239,68,68,.05),
+        0 0 20px rgba(239,68,68,.15);
+
+    animation:gentlePulseRed 2s ease-in-out infinite;
+
+}
+
+/* The cell giving up charge. Amber, matching its ▼ DISCHARGING badge
+   and the amber row in the balancing box — one colour per meaning,
+   everywhere. */
+
+.cell.balancing{
+
+    border-color:rgba(217,119,6,.45);
+
+    box-shadow:
+        inset 0 0 12px rgba(217,119,6,.05),
+        0 0 20px rgba(217,119,6,.2);
+
+    animation:gentlePulseAmber 2s ease-in-out infinite;
+
+}
+
+@keyframes gentlePulseAmber{
+
+    0%,100%{
+        box-shadow:
+            inset 1px 1px 0px rgba(255,255,255,.8),
+            inset 0 0 12px rgba(217,119,6,.06),
+            0 0 14px rgba(217,119,6,.28);
+    }
+
+    50%{
+        box-shadow:
+            inset 1px 1px 0px rgba(255,255,255,.8),
+            inset 0 0 12px rgba(217,119,6,.12),
+            0 0 26px rgba(217,119,6,.6);
+    }
+
+}
+
+/* The cell receiving charge. Green against the discharging cell's
+   amber — opposite ends of the spectrum, so giving and receiving are
+   never confused at a glance, including for red-green colour blindness
+   where amber and green separate by lightness. The ▼ / ▲ arrows carry
+   the same meaning without relying on colour at all. */
+
+.cell.charging{
+
+    border-color:rgba(22,163,74,.45);
+
+    box-shadow:
+        inset 0 0 12px rgba(22,163,74,.05),
+        0 0 20px rgba(22,163,74,.2);
+
+    animation:gentlePulseGreen 2s ease-in-out infinite;
+
+}
+
+@keyframes gentlePulseGreen{
+
+    0%,100%{
+        box-shadow:
+            inset 1px 1px 0px rgba(255,255,255,.8),
+            inset 0 0 12px rgba(22,163,74,.06),
+            0 0 14px rgba(22,163,74,.28);
+    }
+
+    50%{
+        box-shadow:
+            inset 1px 1px 0px rgba(255,255,255,.8),
+            inset 0 0 12px rgba(22,163,74,.12),
+            0 0 26px rgba(22,163,74,.6);
+    }
+
+}
+
+/* Small text tags supplement the glow border with the specific
+   condition name — the card itself never gets a solid color fill */
+
+.cell-msgs{
+
+    display:none;
+
+    flex-wrap:wrap;
+
+    justify-content:center;
+
+    gap:5px;
+
+    margin-top:8px;
+
+}
+
+.cell-msg{
+
+    font-size:10px;
+
+    font-weight:700;
+
+    letter-spacing:.3px;
+
+    color:var(--text);
+
+    background:var(--navy-600);
+
+    border:1px solid var(--border);
+
+    padding:4px 10px;
+
+    border-radius:8px;
+
+    white-space:nowrap;
+
+}
+
+/* Charge direction is read from colour before the words are read:
+   amber leaving, green arriving. Solid fills, not tints — these two
+   badges must never be mistaken for each other at a glance. */
+
+.cell-msg.discharging{
+
+    color:#fff;
+
+    background:#d97706;
+
+    border-color:#b45309;
+
+}
+
+/* Over-balancing warning badge — amber, blinks to draw attention. */
+
+.cell-msg.overbal{
+
+    color:#fff;
+
+    background:#b45309;
+
+    border-color:#92400e;
+
+    animation:alertPinBlink 0.9s steps(1,end) infinite;
+
+}
+
+.cell-msg.charging{
+
+    color:#fff;
+
+    background:#16a34a;
+
+    border-color:#15803d;
+
+}
+
+.cell-msg.fault{
+
+    color:#fff;
+
+    background:#dc2626;
+
+    border-color:#b91c1c;
+
+}
+
+/* Lifetime tally of how often this cell has been each end of a
+   transfer. Same amber/green as the badges and the cards. */
+
+.cell-counts{
+
+    display:flex;
+
+    justify-content:center;
+
+    gap:16px;
+
+    margin-top:10px;
+
+    font-size:16px;
+
+    font-weight:800;
+
+    letter-spacing:.3px;
+
+}
+
+.count-discharge{
+
+    color:#b45309;
+
+}
+
+.count-charge{
+
+    color:#15803d;
+
+}
+
+/* An under-voltage cell is a REAL reading, not a missing one — it keeps its
+   full contrast so the voltage stays readable, and is marked with an amber
+   border instead. (It used to be greyed out to 45%, which made a perfectly
+   good low reading look like a dead/disconnected cell.) */
+.cell.uv-fault{
+
+    border-color:rgba(217,119,6,.45);
+
+    box-shadow:
+        inset 0 0 12px rgba(217,119,6,.05),
+        0 0 20px rgba(217,119,6,.15);
+
+}
+
+/* The tag doubles as a terminal cap — flat bottom fusing into the
+   card, pulled up slightly so it reads as a clamped metal piece. */
+.cell-chip{
+
+    display:inline-block;
+
+    background:var(--c);
+
+    color:#ffffff;
+
+    font-size:12px;
+
+    font-weight:700;
+
+    letter-spacing:.5px;
+
+    text-transform:uppercase;
+
+    padding:6px 20px;
+
+    border-radius:6px 6px 0 0;
+
+    margin-top:-12px;
+
+    margin-bottom:14px;
+
+    box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.3),
+        0 4px 10px color-mix(in srgb, var(--c) 40%, transparent);
+
+}
+
+/* Circular voltage gauge */
+
+.cell-gauge{
+
+    --pct:0;
+
+    width:70px;
+
+    height:70px;
+
+    margin:0 auto 5px;
+
+    border-radius:50%;
+
+    /* Thin repeating dividers over the fill give an industrial,
+       segmented LED-dashboard look instead of one solid arc. */
+    background:
+        repeating-conic-gradient(from 0deg, transparent 0deg 8deg, rgba(255,255,255,.85) 8deg 9deg),
+        conic-gradient(var(--c) calc(var(--pct) * 1%), #eef2f8 0);
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:center;
+
+    transition:background .6s ease, filter .6s ease;
+
+    /* Soft neon glow behind the active voltage arc */
+    filter:drop-shadow(0 0 6px color-mix(in srgb, var(--c) 55%, transparent));
+
+}
+
+.cell-gauge-inner{
+
+    width:56px;
+
+    height:56px;
+
+    border-radius:50%;
+
+    background:#ffffff;
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:center;
+
+    box-shadow:inset 0 2px 8px rgba(15,23,42,.08);
+
+}
+
+.cell-voltage{
+
+    color:var(--c);
+
+    font-size:13px;
+
+    font-weight:800;
+
+}
+
+/* ==========================================
+   VOLTAGE CURRENT POWER PANEL
+========================================== */
+
+/* Now a compact vertical list in the left column: each row is
+   [label ........ value]. */
+
+.top-panel{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:5px;
+
+}
+
+.box{
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:space-between;
+
+    gap:8px;
+
+    background:var(--navy-700);
+
+    border:1px solid var(--border);
+
+    border-radius:8px;
+
+    padding:6px 12px;
+
+    text-align:left;
+
+    box-shadow:0 4px 15px rgba(15,23,42,.05);
+
+}
+
+.box h3{
+
+    color:var(--text-dim);
+
+    margin:0;
+
+    font-size:10px;
+
+    letter-spacing:.5px;
+
+    font-weight:600;
+
+    white-space:nowrap;
+
+}
+
+.box span{
+
+    display:block;
+
+    color:var(--cyan);
+
+    font-size:14px;
+
+    font-weight:700;
+
+    white-space:nowrap;
+
+}
+
+.box input{
+
+    width:100px;
+
+    padding:5px 8px;
+
+    border:1px solid rgba(47,111,224,.35);
+
+    outline:none;
+
+    border-radius:8px;
+
+    text-align:right;
+
+    font-size:12px;
+
+    background:var(--navy-800);
+
+    color:var(--cyan);
+
+    font-weight:700;
+
+}
+
+.box input::placeholder{
+
+    color:#94a3b8;
+
+    font-weight:normal;
+
+}
+
+.box input:focus{
+
+    border-color:var(--cyan);
+
+    box-shadow:0 0 0 3px rgba(14,116,144,.15);
+
+}
+
+/* ==========================================
+   STATISTICS PANEL
+========================================== */
+
+/* Bottom action bar — Current Zero / Equalization Setting / Automatic
+   Equalization, moved out of the left panel to the foot of the page. */
+
+.bottom-controls{
+
+    display:flex;
+
+    gap:8px;
+
+    margin-bottom:0;
+
+}
+
+.bottom-controls button{
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:center;
+
+    gap:6px;
+
+    padding:4px 12px;
+
+    background:var(--navy-700);
+
+    color:var(--text);
+
+    border:1px solid var(--border);
+
+    border-radius:8px;
+
+    font-size:10px;
+
+    font-weight:700;
+
+    letter-spacing:.3px;
+
+    cursor:pointer;
+
+    box-shadow:0 4px 20px rgba(15,23,42,.06);
+
+    transition:transform .15s, box-shadow .15s, background .15s;
+
+}
+
+.bottom-controls button:hover{
+
+    background:#e6edf5;
+
+    border-color:rgba(14,116,144,.35);
+
+    transform:translateY(-1px);
+
+}
+
+.bottom-controls .btn-icon{
+
+    background:rgba(14,116,144,.12);
+
+}
+
+.stats-bar{
+
+    margin-bottom:10px;
+
+    background:var(--navy-700);
+
+    border:1px solid var(--border);
+
+    border-radius:12px;
+
+    padding:8px 12px;
+
+    box-shadow:0 4px 20px rgba(15,23,42,.06);
+
+}
+
+.stats-bar > h3{
+
+    color:var(--cyan);
+
+    margin-bottom:6px;
+
+    font-size:11px;
+
+    letter-spacing:1px;
+
+}
+
+.stats-grid{
+
+    /* Vertical list — each statistic on its own row. */
+    display:flex;
+
+    flex-direction:column;
+
+    gap:5px;
+
+}
+
+.stat-item{
+
+    display:flex;
+
+    align-items:center;
+
+    gap:7px;
+
+    text-align:left;
+
+    background:var(--navy-600);
+
+    border-radius:8px;
+
+    padding:6px 10px;
+
+    border:1px solid var(--border);
+
+}
+
+/* In list mode the icon stays put, the label fills the middle, and the
+   value + sub sit at the right. */
+
+.stat-item .stat-icon{
+
+    margin:0;
+
+    flex:none;
+
+}
+
+.stat-item .stat-label{
+
+    flex:none;
+
+    margin:0;
+
+    white-space:nowrap;
+
+}
+
+.stat-item .stat-value{
+
+    margin:0 0 0 auto;
+
+    white-space:nowrap;
+
+}
+
+/* BALANCING CYCLES: "N started today" is pinned to the right edge of the
+   box. The value carries an auto left margin too, so the free space splits
+   between them — the count sits between the label and this. */
+.stat-item .stat-sub{
+
+    margin:0 0 0 auto;
+
+    white-space:nowrap;
+
+}
+
+/* MAX / MIN rows: the "Cell N" indicator sits centered between the label
+   and the value, instead of tucked against the right edge. This rule comes
+   after .stat-sub on purpose — its margin:0 must win over the auto above. */
+.stat-item .stat-sub-center{
+
+    flex:1;
+
+    margin:0;
+
+    text-align:center;
+
+}
+
+/* Voltage Difference tile: only its border pulses black while balancing
+   runs — the fill and text stay as they are. */
+
+.stat-item.balancing-blink{
+
+    animation:diffBlink 1.2s ease-in-out infinite;
+
+}
+
+@keyframes diffBlink{
+
+    0%,100%{
+        border-color:var(--border);
+        box-shadow:none;
+    }
+    50%{
+        border-color:#000;
+        box-shadow:0 0 0 2px rgba(0,0,0,.35);
+    }
+
+}
+
+.stat-icon{
+
+    width:20px;
+
+    height:20px;
+
+    margin:0 auto 4px;
+
+    border-radius:6px;
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:center;
+
+    font-size:11px;
+
+}
+
+.icon-high{
+
+    background:rgba(239,68,68,.12);
+
+    color:var(--status-alert);
+
+}
+
+.icon-low{
+
+    background:rgba(16,185,129,.12);
+
+    color:var(--status-safe);
+
+}
+
+.icon-neutral{
+
+    background:rgba(14,116,144,.12);
+
+    color:var(--cyan);
+
+}
+
+.icon-blue{
+
+    background:rgba(47,111,224,.12);
+
+    color:var(--blue);
+
+}
+
+.icon-amber{
+
+    background:rgba(217,119,6,.12);
+
+    color:var(--amber);
+
+}
+
+.icon-purple{
+
+    background:rgba(147,51,234,.12);
+
+    color:var(--purple);
+
+}
+
+.icon-pink{
+
+    background:rgba(219,39,119,.12);
+
+    color:var(--pink);
+
+}
+
+.icon-cyan{
+
+    background:rgba(14,116,144,.12);
+
+    color:var(--cyan);
+
+}
+
+.stat-label{
+
+    display:block;
+
+    /* Darker and bolder than the muted --text-dim, so the tile labels
+       (MAX CELL VOLTAGE, MIN CELL VOLTAGE, ...) read clearly instead of
+       fading into the card. */
+    color:#334155;
+
+    font-weight:700;
+
+    font-size:11.5px;
+
+    letter-spacing:.3px;
+
+    margin-bottom:8px;
+
+}
+
+.stat-value{
+
+    display:block;
+
+    color:var(--cyan);
+
+    font-size:14px;
+
+    font-weight:700;
+
+}
+
+.stat-value.high-color{
+
+    color:var(--status-alert);
+
+}
+
+.stat-value.low-color{
+
+    color:var(--status-safe);
+
+}
+
+.stat-value.blue-color{
+
+    color:var(--blue);
+
+}
+
+.stat-value.amber-color{
+
+    color:var(--amber);
+
+}
+
+.stat-value.purple-color{
+
+    color:var(--purple);
+
+}
+
+.stat-value.pink-color{
+
+    color:var(--pink);
+
+}
+
+.stat-value.cyan-color{
+
+    color:var(--cyan);
+
+}
+
+.stat-sub{
+
+    display:block;
+
+    /* Secondary line (the cell name, "today"): darker than --text-dim so
+       it is legible, but kept lighter than the main label above. */
+    color:#475569;
+
+    font-weight:600;
+
+    font-size:11px;
+
+    margin-top:4px;
+
+}
+
+/* ==========================================
+   FOOTER
+========================================== */
+
+.footer{
+
+    display:flex;
+
+    justify-content:center;
+
+    align-items:center;
+
+    gap:12px;
+
+    padding:15px;
+
+    color:var(--text-dim);
+
+    font-size:12px;
+
+}
+
+/* ==========================================
+   STATUS MESSAGE
+========================================== */
+
+/* The container: a top-centre column that stacks its toasts downward.
+   Always present but invisible when empty; clicks pass through it. */
+
+.status-message{
+
+    position:fixed;
+
+    left:20px;
+
+    bottom:20px;
+
+    z-index:9999;
+
+    display:flex;
+
+    flex-direction:column;
+
+    align-items:flex-start;
+
+    gap:10px;
+
+    pointer-events:none;
+
+}
+
+/* One message. New ones append below the last, so the newest sits at
+   the bottom of the stack. */
+
+.status-toast{
+
+    min-width:350px;
+
+    max-width:min(560px, calc(100vw - 40px));
+
+    padding:15px 25px;
+
+    border-radius:12px;
+
+    color:#fff;
+
+    font-size:16px;
+
+    font-weight:600;
+
+    text-align:center;
+
+    box-shadow:0 10px 30px rgba(15,23,42,.25);
+
+    animation:slideDown .4s ease;
+
+}
+
+/* Fade out on the way out, so a dismissing toast doesn't just vanish. */
+
+.status-toast.status-out{
+
+    opacity:0;
+
+    transform:translateY(-6px);
+
+    transition:opacity .3s ease, transform .3s ease;
+
+}
+
+.safety-banner{
+
+    display:none;
+
+    position:fixed;
+
+    left:20px;
+
+    /* Sits above the status toasts, which occupy the very bottom-left. */
+    bottom:96px;
+
+    z-index:8000;
+
+    flex-direction:column;
+
+    align-items:flex-start;
+
+    gap:10px;
+
+    max-width:min(420px, calc(100vw - 40px));
+
+    max-height:70vh;
+
+    overflow-y:auto;
+
+}
+
+.warning-item{
+
+    padding:12px 18px;
+
+    border-radius:10px;
+
+    font-size:14px;
+
+    font-weight:700;
+
+    line-height:1.4;
+
+    text-align:left;
+
+    color:#fff;
+
+    box-shadow:0 8px 22px rgba(15,23,42,.2);
+
+    animation:warningIn .2s ease;
+
+}
+
+@keyframes warningIn{
+
+    from{ transform:translateX(-16px); opacity:0; }
+    to{ transform:translateX(0); opacity:1; }
+
+}
+
+.warning-item.level-critical{
+
+    background:linear-gradient(90deg,#f87171,var(--status-alert));
+
+    animation:warningIn .2s ease, criticalPulse 1s infinite;
+
+}
+
+@keyframes criticalPulse{
+
+    0%,100%{ box-shadow:0 8px 22px rgba(239,68,68,.3); }
+    50%{ box-shadow:0 8px 26px rgba(239,68,68,.7); }
+
+}
+
+.warning-item.level-warning{
+
+    background:linear-gradient(90deg,var(--status-neutral),#d97706);
+
+    color:#241a00;
+
+}
+
+.warning-item.level-info{
+
+    background:linear-gradient(90deg,var(--status-balancing),#38bdf8);
+
+    color:#ffffff;
+
+}
+
+
+.status-success{
+
+    background:linear-gradient(90deg,#1fbf6a,#27ae60);
+
+}
+
+.status-stop{
+
+    background:linear-gradient(90deg,#e74c3c,#c0392b);
+
+}
+
+/* Toasts are children of a centred container, so their entrance moves
+   only vertically — no horizontal -50% (that centring lives on the
+   container now). */
+
+@keyframes slideDown{
+
+    from{
+
+        opacity:0;
+
+        transform:translateY(-12px);
+
+    }
+
+    to{
+
+        opacity:1;
+
+        transform:translateY(0);
+
+    }
+
+}
+
+/* ==========================================
+   TIMER + SPINNER
+========================================== */
+
+/* Balancer Control row: narrow START/STOP on the left, RUNNING TIME in the
+   middle, charging/discharging balancing box on the right. When balancing is
+   idle the balancing box is display:none, so the timer takes the extra room. */
+.control-row{
+
+    display:flex;
+
+    gap:6px;
+
+    align-items:stretch;
+
+    margin-top:6px;
+
+}
+
+/* Left stack: START/STOP with the compact balancing readout below them */
+.control-left{
+
+    flex:0 0 112px;
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:6px;
+
+    min-width:0;
+
+}
+
+/* Narrow stacked START / STOP buttons */
+.control-buttons{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:6px;
+
+}
+
+.control-buttons button{
+
+    width:100%;
+
+    margin-top:0;
+
+    padding:5px 6px;
+
+    font-size:10px;
+
+}
+
+.control-row .timer-box{
+
+    flex:1 1 0;
+
+    min-width:0;
+
+    margin-top:0;
+
+}
+
+/* Compact balancing readout under START/STOP — a small vertical stack, no
+   big box. Amber = discharging cell, green = charging cell. The completion
+   time is not repeated here (RUNNING TIME already shows COMPLETES AT). */
+.balancing-line{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:2px;
+
+    padding-top:7px;
+
+    border-top:1px solid var(--border);
+
+    font-size:10px;
+
+    font-weight:700;
+
+    line-height:1.25;
+
+    text-align:left;
+
+}
+
+.balancing-line .balancing-list{ display:flex; flex-direction:column; gap:2px; }
+.balancing-line .bal-title{ color:var(--cyan); letter-spacing:.4px; font-size:9px; }
+.balancing-line .bal-dis{ color:#d97706; }
+.balancing-line .bal-chg{ color:#16a34a; }
+.balancing-line .bal-sep{ color:var(--text-dim); }
+.balancing-line .balancing-note{ display:none; }
+
+.timer-box{
+
+    margin-top:10px;
+
+    text-align:center;
+
+}
+
+.timer-box h3{
+
+    color:var(--text-dim);
+
+    margin-bottom:4px;
+
+    font-size:10px;
+
+    letter-spacing:1px;
+
+}
+
+.timer-box h2{
+
+    color:#059669;
+
+    font-size:15px;
+
+    letter-spacing:1px;
+
+    font-weight:700;
+
+}
+
+/* Sits under RUNNING TIME; visible only while balancing */
+
+.eta-box{
+
+    margin-top:6px;
+
+    padding-top:6px;
+
+    border-top:1px solid var(--border);
+
+}
+
+.eta-box h3{
+
+    color:var(--text-dim);
+
+    margin-bottom:4px;
+
+    font-size:11px;
+
+    letter-spacing:1px;
+
+}
+
+.eta-box h2{
+
+    color:#0e7490;
+
+    font-size:20px;
+
+    letter-spacing:1px;
+
+    font-weight:700;
+
+}
+
+.live-clock{
+
+    margin-top:3px;
+
+    color:var(--text-dim);
+
+    font-size:9.5px;
+
+    letter-spacing:.3px;
+
+}
+
+.spinner{
+
+    position:relative;
+
+    width:22px;
+
+    height:22px;
+
+    margin:4px auto 2px;
+
+    display:none;
+
+}
+
+.spinner div{
+
+    position:absolute;
+
+    top:50%;
+
+    left:50%;
+
+    width:5px;
+
+    height:5px;
+
+    border-radius:50%;
+
+    background:var(--cyan);
+
+    transform-origin:0 0;
+
+    animation:spinnerFade 1.2s linear infinite;
+}
+
+.spinner div:nth-child(1){ transform:rotate(0deg) translate(9px); animation-delay:-1.05s; }
+.spinner div:nth-child(2){ transform:rotate(45deg) translate(9px); animation-delay:-0.9s; }
+.spinner div:nth-child(3){ transform:rotate(90deg) translate(9px); animation-delay:-0.75s; }
+.spinner div:nth-child(4){ transform:rotate(135deg) translate(9px); animation-delay:-0.6s; }
+.spinner div:nth-child(5){ transform:rotate(180deg) translate(9px); animation-delay:-0.45s; }
+.spinner div:nth-child(6){ transform:rotate(225deg) translate(9px); animation-delay:-0.3s; }
+.spinner div:nth-child(7){ transform:rotate(270deg) translate(9px); animation-delay:-0.15s; }
+.spinner div:nth-child(8){ transform:rotate(315deg) translate(9px); animation-delay:0s; }
+
+@keyframes spinnerFade{
+
+    0%,39%,100%{ opacity:.2; }
+    40%{ opacity:1; }
+
+}
+
+.running-label{
+
+    display:none;
+
+    margin-top:3px;
+
+    color:var(--cyan);
+
+    font-size:10.5px;
+
+    letter-spacing:1.5px;
+
+    font-weight:700;
+
+}
+
+/* ==========================================
+   START BUTTON RUNNING EFFECT
+========================================== */
+
+@keyframes pulse{
+
+    0%{ transform:scale(1); }
+    50%{ transform:scale(1.03); }
+    100%{ transform:scale(1); }
+
+}
+
+/* ==========================================
+   DISABLED BUTTONS
+========================================== */
+
+button:disabled{
+
+    opacity:.4;
+
+    cursor:not-allowed;
+
+    transform:none !important;
+
+    box-shadow:none !important;
+
+}
+
+/* ==========================================
+   SCROLLBAR
+========================================== */
+
+::-webkit-scrollbar{
+
+    width:8px;
+
+}
+
+::-webkit-scrollbar-track{
+
+    background:var(--navy-900);
+
+}
+
+::-webkit-scrollbar-thumb{
+
+    background:#b6c2d1;
+
+    border-radius:10px;
+
+}
+
+::-webkit-scrollbar-thumb:hover{
+
+    background:var(--cyan);
+
+}
+
+/* ==========================================
+   RESPONSIVE
+========================================== */
+
+@media(max-width:1100px){
+
+    .main-content{
+
+        flex-direction:column;
+
+    }
+
+    .left-panel{
+
+        width:100%;
+
+    }
+
+    .grid{
+
+        grid-template-columns:repeat(2,1fr);
+
+    }
+
+    .stats-grid{
+
+        grid-template-columns:repeat(3,1fr);
+
+    }
+
+}
+
+@media(max-width:700px){
+
+    .header{
+
+        flex-direction:column;
+
+        text-align:center;
+
+        gap:15px;
+
+    }
+
+    .header-title{
+
+        position:static;
+
+        transform:none;
+
+        order:-1;
+
+    }
+
+    .profile{
+
+        flex-direction:column;
+
+    }
+
+    .top-panel{
+
+        grid-template-columns:1fr;
+
+    }
+
+    .grid{
+
+        grid-template-columns:1fr;
+
+    }
+
+    .stats-grid{
+
+        grid-template-columns:repeat(2,1fr);
+
+    }
+
+    .bottom-controls{
+
+        grid-template-columns:1fr;
+
+    }
+
+}
+
+/* ==========================================
+   EQUALIZATION MODAL
+   (runs in-page so the BMS session never
+   stops just from opening this screen —
+   only the STOP button stops it)
+========================================== */
+
+.eq-overlay{
+
+    display:none;
+
+    position:fixed;
+
+    inset:0;
+
+    background:rgba(15,23,42,.55);
+
+    backdrop-filter:blur(4px);
+
+    z-index:5000;
+
+    align-items:flex-start;
+
+    justify-content:center;
+
+    padding:40px 20px;
+
+    overflow-y:auto;
+
+}
+
+.eq-overlay.open{
+
+    display:flex;
+
+}
+
+.eq-panel{
+
+    width:100%;
+
+    max-width:1300px;
+
+    background:var(--navy-800);
+
+    border:1px solid var(--border);
+
+    border-radius:20px;
+
+    padding:30px;
+
+    box-shadow:0 30px 80px rgba(15,23,42,.3);
+
+    animation:riseIn .35s ease;
+
+}
+
+@keyframes riseIn{
+
+    from{ opacity:0; transform:translateY(20px); }
+    to{ opacity:1; transform:translateY(0); }
+
+}
+
+.eq-header{
+
+    display:flex;
+
+    justify-content:space-between;
+
+    align-items:flex-start;
+
+    margin-bottom:22px;
+
+    padding-bottom:20px;
+
+    border-bottom:1px solid var(--border);
+
+}
+
+.eq-header h2{
+
+    font-size:22px;
+
+    font-weight:700;
+
+    color:var(--text);
+
+}
+
+.eq-header p{
+
+    color:var(--text-dim);
+
+    font-size:13px;
+
+    margin-top:6px;
+
+}
+
+.eq-close{
+
+    width:auto;
+
+    background:transparent;
+
+    color:#dc2626;
+
+    border:1px solid rgba(220,38,38,.3);
+
+    padding:10px 20px;
+
+    border-radius:10px;
+
+    font-size:13px;
+
+    font-weight:600;
+
+}
+
+.eq-close:hover{
+
+    background:rgba(220,38,38,.08);
+
+    box-shadow:0 4px 12px rgba(220,38,38,.15);
+
+}
+
+.eq-main{
+
+    display:flex;
+
+    gap:20px;
+
+    align-items:flex-start;
+
+}
+
+.eq-params{
+
+    flex:1;
+
+    display:grid;
+
+    grid-template-columns:repeat(3,1fr);
+
+    gap:16px;
+
+}
+
+/* No more heavy boxed cards — each parameter is a plain row
+   separated by a crisp fine line, so nine settings at once read
+   calmly instead of as nine competing panels. */
+.eq-card{
+
+    background:transparent;
+
+    border:none;
+
+    border-bottom:1px solid #e2e8f0;
+
+    border-radius:0;
+
+    padding:18px 6px;
+
+    box-shadow:none;
+
+    transition:background .2s ease;
+
+}
+
+.eq-card:hover{
+
+    transform:none;
+
+    background:rgba(14,116,144,.03);
+
+    box-shadow:none;
+
+}
+
+.eq-card h4{
+
+    font-size:14px;
+
+    font-weight:600;
+
+    color:var(--text);
+
+    margin-bottom:6px;
+
+    min-height:auto;
+
+}
+
+.eq-desc{
+
+    font-size:11px;
+
+    color:var(--text-dim);
+
+    margin-bottom:14px;
+
+    line-height:1.4;
+
+}
+
+.eq-inputs .eq-field:only-child{
+
+    max-width:220px;
+
+}
+
+.eq-inputs{
+
+    display:flex;
+
+    gap:10px;
+
+    margin-bottom:10px;
+
+}
+
+.eq-field{
+
+    flex:1;
+
+}
+
+.eq-field label{
+
+    display:block;
+
+    font-size:10px;
+
+    letter-spacing:.5px;
+
+    color:var(--text-dim);
+
+    margin-bottom:6px;
+
+    font-weight:600;
+
+}
+
+.eq-field input[type="number"]{
+
+    width:100%;
+
+    padding:10px;
+
+    border:1px solid var(--border);
+
+    outline:none;
+
+    border-radius:8px;
+
+    text-align:center;
+
+    font-size:14px;
+
+    background:var(--navy-800);
+
+    color:var(--cyan);
+
+    font-weight:600;
+
+}
+
+.eq-field input[type="number"]:focus{
+
+    border-color:var(--cyan);
+
+    box-shadow:0 0 0 3px rgba(14,116,144,.15);
+
+}
+
+/* Hardware-knob feel for adjusting values without typing */
+.bms-slider{
+
+    -webkit-appearance:none;
+
+    appearance:none;
+
+    width:100%;
+
+    height:6px;
+
+    margin-top:10px;
+
+    background:#e2e8f0;
+
+    border-radius:999px;
+
+    outline:none;
+
+}
+
+.bms-slider::-webkit-slider-thumb{
+
+    -webkit-appearance:none;
+
+    width:18px;
+
+    height:18px;
+
+    border-radius:50%;
+
+    background:linear-gradient(135deg,#00b4db,#0083b0);
+
+    box-shadow:0 3px 6px rgba(0,180,219,.4);
+
+    cursor:pointer;
+
+}
+
+.bms-slider::-moz-range-thumb{
+
+    width:18px;
+
+    height:18px;
+
+    border:none;
+
+    border-radius:50%;
+
+    background:linear-gradient(135deg,#00b4db,#0083b0);
+
+    box-shadow:0 3px 6px rgba(0,180,219,.4);
+
+    cursor:pointer;
+
+}
+
+/* Muted by default — this keeps nine "Set" buttons from all
+   shouting for attention at once; only the one you touch pops blue. */
+.eq-setbtn{
+
+    width:100%;
+
+    background:transparent;
+
+    color:var(--text-dim);
+
+    border:1px solid var(--border);
+
+    padding:10px;
+
+    border-radius:8px;
+
+    font-weight:700;
+
+    font-size:13px;
+
+    letter-spacing:.5px;
+
+    transition:.2s;
+
+}
+
+.eq-setbtn:hover{
+
+    background:linear-gradient(90deg,var(--blue),var(--cyan));
+
+    color:#ffffff;
+
+    border-color:transparent;
+
+    transform:translateY(-1px);
+
+    box-shadow:0 8px 18px rgba(47,111,224,.3);
+
+}
+
+.eq-sidebar{
+
+    width:250px;
+
+    flex-shrink:0;
+
+    background:var(--navy-700);
+
+    border:1px solid var(--border);
+
+    border-radius:16px;
+
+    padding:22px;
+
+}
+
+.eq-sidebar h3{
+
+    text-align:center;
+
+    color:var(--cyan);
+
+    font-size:14px;
+
+    letter-spacing:1px;
+
+    margin-bottom:18px;
+
+}
+
+.eq-sidebtn{
+
+    width:100%;
+
+    margin-top:12px;
+
+    padding:14px 16px;
+
+    border:none;
+
+    border-radius:10px;
+
+    font-size:13px;
+
+    letter-spacing:.4px;
+
+    font-weight:600;
+
+    display:flex;
+
+    align-items:center;
+
+    gap:12px;
+
+    background:var(--navy-600);
+
+    color:var(--text);
+
+    border:1px solid var(--border);
+
+}
+
+.eq-sidebtn .btn-icon{
+
+    background:rgba(14,116,144,.12);
+
+}
+
+.eq-sidebtn:hover{
+
+    background:#e6edf5;
+
+    border-color:rgba(14,116,144,.35);
+
+    transform:translateY(-1px);
+
+}
+
+.eq-sidebtn.warn{
+
+    background:linear-gradient(90deg,#e74c3c,#c0392b);
+
+    color:#fff;
+
+    border:none;
+
+}
+
+.eq-sidebtn.warn:hover{
+
+    box-shadow:0 6px 18px rgba(231,76,60,.35);
+
+}
+
+/* SAVE bar at the foot of the Equalization Settings panel */
+.eq-footer{
+
+    display:flex;
+
+    justify-content:flex-end;
+
+    margin-top:22px;
+
+    padding-top:20px;
+
+    border-top:1px solid var(--border);
+
+}
+
+.eq-savebtn{
+
+    display:flex;
+
+    align-items:center;
+
+    gap:10px;
+
+    min-width:180px;
+
+    justify-content:center;
+
+    padding:13px 26px;
+
+    border:none;
+
+    border-radius:10px;
+
+    font-size:14px;
+
+    font-weight:700;
+
+    letter-spacing:.5px;
+
+    color:#ffffff;
+
+    background:linear-gradient(90deg,var(--blue),var(--cyan));
+
+    cursor:pointer;
+
+    transition:transform .15s, box-shadow .15s;
+
+}
+
+.eq-savebtn:hover{
+
+    transform:translateY(-1px);
+
+    box-shadow:0 8px 20px rgba(47,111,224,.35);
+
+}
+
+.eq-savebtn .btn-icon{
+
+    background:rgba(255,255,255,.18);
+
+}
+
+@media(max-width:1100px){
+
+    .eq-params{ grid-template-columns:repeat(2,1fr); }
+
+    .eq-main{ flex-direction:column; }
+
+    .eq-sidebar{ width:100%; }
+
+}
+
+@media(max-width:640px){
+
+    .eq-params{ grid-template-columns:1fr; }
+
+    .eq-header{ flex-direction:column; gap:14px; }
+
+}
+
+/* ==========================================
+   LOGOUT CONFIRM OVERLAY
+========================================== */
+
+.logout-overlay{
+
+    display:none;
+
+    position:fixed;
+
+    inset:0;
+
+    background:rgba(15,23,42,.55);
+
+    backdrop-filter:blur(4px);
+
+    z-index:6000;
+
+    align-items:center;
+
+    justify-content:center;
+
+    padding:20px;
+
+}
+
+.logout-overlay.open{
+
+    display:flex;
+
+}
+
+.logout-box{
+
+    width:100%;
+
+    max-width:360px;
+
+    background:var(--navy-700);
+
+    border:1px solid var(--border);
+
+    border-radius:20px;
+
+    padding:34px 30px;
+
+    text-align:center;
+
+    box-shadow:0 30px 70px rgba(15,23,42,.25);
+
+    animation:logoutRiseIn .25s ease;
+
+}
+
+@keyframes logoutRiseIn{
+
+    from{ opacity:0; transform:translateY(12px) scale(.97); }
+    to{ opacity:1; transform:translateY(0) scale(1); }
+
+}
+
+.logout-icon{
+
+    width:56px;
+
+    height:56px;
+
+    margin:0 auto 16px;
+
+    border-radius:50%;
+
+    background:rgba(220,38,38,.1);
+
+    color:#dc2626;
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:center;
+
+    font-size:24px;
+
+}
+
+.logout-box h3{
+
+    color:var(--text);
+
+    font-size:19px;
+
+    font-weight:700;
+
+    margin-bottom:10px;
+
+}
+
+.logout-box p{
+
+    color:var(--text-dim);
+
+    font-size:13px;
+
+    line-height:1.6;
+
+    margin-bottom:24px;
+
+}
+
+.logout-disconnect{
+
+    display:flex;
+
+    align-items:center;
+
+    justify-content:center;
+
+    gap:8px;
+
+    margin-bottom:18px;
+
+    font-size:13px;
+
+    font-weight:600;
+
+    color:var(--text);
+
+    cursor:pointer;
+
+}
+
+.logout-disconnect input{
+
+    width:16px;
+
+    height:16px;
+
+    cursor:pointer;
+
+}
+
+.logout-confirm-btn{
+
+    width:100%;
+
+    padding:13px;
+
+    border:none;
+
+    border-radius:10px;
+
+    font-size:14px;
+
+    font-weight:700;
+
+    letter-spacing:.3px;
+
+    color:#ffffff;
+
+    background:linear-gradient(135deg,#ef4444,#dc2626);
+
+    cursor:pointer;
+
+    transition:.2s;
+
+    margin-bottom:10px;
+
+}
+
+.logout-confirm-btn:hover{
+
+    box-shadow:0 8px 20px rgba(220,38,38,.3);
+
+    transform:translateY(-1px);
+
+}
+
+.logout-cancel-btn{
+
+    width:100%;
+
+    padding:12px;
+
+    border:none;
+
+    border-radius:10px;
+
+    font-size:14px;
+
+    font-weight:600;
+
+    color:var(--text-dim);
+
+    background:transparent;
+
+    cursor:pointer;
+
+    transition:.2s;
+
+}
+
+.logout-cancel-btn:hover{
+
+    background:rgba(0,0,0,.04);
+
+    color:var(--text);
+
+}
+
