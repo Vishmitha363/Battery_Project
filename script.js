@@ -1197,7 +1197,7 @@ function compareParameters(text) {
         ),
         rule,
         differing.length
-            ? `RESULT : VALUES CHANGED — ${differing.length} OF ${results.length} DIFFER (${differing.map(d => d.key).join(", ")})`
+            ? `RESULT : VALUES CHANGED — ${differing.length} OF ${results.length} UPDATED ON DASHBOARD (${differing.map(d => d.key).join(", ")})`
             : `RESULT : SAME VALUES — ALL ${results.length} MATCH`,
         rule,
         ""
@@ -1214,10 +1214,38 @@ function compareParameters(text) {
 
     }
 
+    // The device is the source of truth: bring every differing dashboard
+    // field into line with the device's value. Each is written into its input
+    // (and its paired slider), saved, and the cell grid resized if CELLS
+    // changed — exactly as a "$SET ...#" would, but quietly, without echoing
+    // an ack back per field.
+    differing.forEach(r => {
+
+        const id = REMOTE_FIELD_MAP[r.key];
+        const input = id ? document.getElementById(id) : null;
+
+        if (!input) return;
+
+        input.value = r.deviceValue;
+
+        const slider = document.getElementById(id + "Slider");
+        if (slider) slider.value = r.deviceValue;
+
+        if (id === "stringCount") applyStringNumber(false);
+        else saveEqSetting(id);
+
+    });
+
     // The toast names which parameters changed; the per-value detail is in
     // the log and the Docklight table above, so the toast stays readable.
-    showStatus(`⚠ Values changed — ${differing.map(d => d.key).join(", ")}`, "stop");
-    logEvent(`⚠ Values changed — ${differing.length} of ${results.length} differ`, "error");
+    showStatus(`⚠ Values Updated To Device — ${differing.map(d => d.key).join(", ")}`, "stop");
+    logEvent(`⚠ Values Changed — ${differing.length} Of ${results.length} Updated To Device Values`, "error");
+
+    differing.forEach(r => {
+
+        logEvent(`   ↳ ${r.key} — Dashboard Now ${r.deviceValue} (Was ${shown(r.dashValue)})`, "info");
+
+    });
 
 }
 
@@ -2185,6 +2213,12 @@ window.addEventListener("DOMContentLoaded", () => {
     // Live cell telemetry — starts immediately on page load and keeps
     // running forever, whether the BMS session is started or stopped.
     initCellVoltages();
+
+    // A refresh must not blank the pack: bring back the last real readings
+    // saved before reload, so the cells keep showing their values until the
+    // board sends its next frame.
+    restoreCellSnapshot();
+
     renderCells();
     updateStats(false);
 
@@ -2583,6 +2617,21 @@ async function startBMS(transmit = true) {
 
     }
 
+    // START drives the balancer, and the balancer moves charge using the
+    // Equalizing Current. At 0 A there is nothing to run — refuse the whole
+    // session here so it never even shows "BMS RUNNING…", rather than starting
+    // the session and only silently skipping the balance.
+    const eqCurrent = parseFloat(document.getElementById("currentLimit").value);
+
+    if (isNaN(eqCurrent) || eqCurrent <= 0) {
+
+        showStatus("⛔ Cannot Start — Equalizing Current Is 0 (Set A Current First)", "stop");
+        logEvent("⛔ START Refused — Equalizing Current Is 0", "error");
+
+        return;
+
+    }
+
     // START no longer touches the log folder at all — the folder picker /
     // permission dialog it used to open was stalling the whole session
     // (RUNNING TIME stuck at 00:00:00, balancing refusing). Logging is now
@@ -2788,6 +2837,59 @@ function liveDataTick() {
     updateBalancingDisplay();
 
     sendBalanceReport();
+
+    // Keep the last readings in sessionStorage so a page refresh redraws the
+    // cells with the values that were on screen, instead of dropping them all
+    // to 0 V until the board's next frame arrives.
+    saveCellSnapshot();
+
+}
+
+// Persist the current cell readings for this tab session, so a refresh can
+// restore them. sessionStorage (not localStorage): the snapshot belongs to
+// this signed-in session and should not linger after the tab is closed.
+function saveCellSnapshot() {
+
+    try {
+
+        sessionStorage.setItem("bmsCellSnapshot", JSON.stringify({
+            count: CELL_COUNT,
+            sim: simulationEnabled,
+            volts: cellVoltages
+        }));
+
+    }
+
+    catch (e) { /* storage full or blocked — the live feed still works */ }
+
+}
+
+// Redraw the cells from the last saved snapshot after a refresh. Only real
+// measured data is restored: simulated values regenerate on their own, and a
+// mismatched count means the pack was resized since the snapshot was taken.
+function restoreCellSnapshot() {
+
+    try {
+
+        const raw = sessionStorage.getItem("bmsCellSnapshot");
+
+        if (!raw) return;
+
+        const snap = JSON.parse(raw);
+
+        if (!snap || snap.sim || snap.count !== CELL_COUNT) return;
+
+        if (!Array.isArray(snap.volts) || snap.volts.length !== CELL_COUNT) return;
+
+        cellVoltages = snap.volts.map(Number);
+
+        // Keep it flagged as real data so the simulation drift walk doesn't
+        // overwrite the restored readings before the board's next frame.
+        simulationEnabled = false;
+
+    }
+
+    catch (e) { /* corrupt snapshot — fall back to the zeros already set */ }
 
 }
 
@@ -4170,6 +4272,20 @@ async function startBalancing(transmit = true) {
 
         showStatus("⛔ Balancing Disabled — A Cell Was Balanced Too Many Times", "stop");
         logEvent("⛔ Balancing Disabled — A Cell Was Balanced Too Many Times", "error");
+
+        return;
+
+    }
+
+    // Balancing physically moves charge using the Equalizing Current. At 0 A
+    // the balancer would cycle on and off without ever draining anything, so
+    // there is nothing to start — say so and set a current first.
+    const eqCurrent = parseFloat(document.getElementById("currentLimit").value);
+
+    if (isNaN(eqCurrent) || eqCurrent <= 0) {
+
+        showStatus("⛔ Balancing Blocked — Equalizing Current Is 0 (Set A Current First)", "stop");
+        logEvent("⛔ Balancing Blocked — Equalizing Current Is 0", "error");
 
         return;
 
