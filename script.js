@@ -57,6 +57,17 @@ let cellCharging = new Array(CELL_COUNT).fill(false);
 // decides which cells balance. null = the dashboard picks the pair itself.
 let manualBalancePair = null;
 
+// True after a STOP, to keep balancing stopped even though Docklight keeps
+// re-sending its balancing command every second. While set, incoming Docklight
+// pairs are ignored so nothing restarts on its own — cleared again by START
+// (or $BALSTART), which is the deliberate "go" the operator must give.
+let manualBalanceBlocked = false;
+
+// The last pair Docklight selected ({ sender, receiver }), remembered across a
+// STOP so pressing START resumes exactly that balance without waiting for
+// Docklight to re-send its command. null until Docklight names a pair.
+let lastManualPair = null;
+
 // How many times each cell has begun discharging, and begun charging.
 // Counted on the rising edge only — a cell that discharges for 200 ticks
 // has discharged once, not 200 times. Works identically for simulated
@@ -908,21 +919,57 @@ function detectPlainBalancingCommand() {
 
     }
 
-    // "BAL : CELL03 -> CELL06", "BAL:3,6", "BALCELL:3->6", or a lone
-    // "BAL : CELL03" (discharge only). "CELL" and the separators are all
-    // optional, mirroring the framed parser's accepted forms.
-    const pair = rawStatusTail.match(
-        /\bBAL\s*[:=]?\s*(?:CELL\s*[:=]?\s*)?(\d+)(?:\s*[-,>]+\s*(?:CELL\s*[:=]?\s*)?(\d+))?/i
-    );
+    // Prefer a COMPLETE pair — "BAL : CELL03 -> CELL06" — with BOTH cell
+    // numbers present. The stream is continuous (cell frames + a BAL command
+    // repeated every second), so the rolling window regularly cuts a repeat in
+    // half. Scanning globally and taking the LAST complete pair means a cut
+    // copy of the same command can never be read instead of a whole one.
+    //
+    // The trailing "(?=\D)" on the receiver number is essential: without it, a
+    // window that cuts "CELL06" down to "CELL0" would read the receiver as 0
+    // (which becomes -1 / "dissipated"), and a cut of "CELL03" to "CELL0" would
+    // read a sender of 0 ("Invalid Balancing Cell — 0"). Requiring a non-digit
+    // AFTER the number proves the number finished arriving; a number cut off at
+    // the end of the buffer simply waits for the next chunk to complete.
+    const pairRe = /\bBAL\s*[:=]?\s*(?:CELL\s*[:=]?\s*)?(\d+)\s*[-,>]+\s*(?:CELL\s*[:=]?\s*)?(\d+)(?=\D)/ig;
 
-    if (pair) {
+    let m, lastPair = null;
+
+    while ((m = pairRe.exec(rawStatusTail)) !== null) lastPair = m;
+
+    if (lastPair) {
+
+        console.log("[BAL parse] pair sender=" + lastPair[1] + " receiver=" + lastPair[2] + " (v2 parser)");
 
         setManualBalancePair(
-            parseInt(pair[1], 10) - 1,
-            pair[2] !== undefined ? parseInt(pair[2], 10) - 1 : -1
+            parseInt(lastPair[1], 10) - 1,
+            parseInt(lastPair[2], 10) - 1
         );
 
-        rawStatusTail = rawStatusTail.replace(pair[0], "·");
+        // Blank every complete pair so none re-fires; a half-arrived repeat is
+        // left untouched to finish assembling on the next chunk.
+        rawStatusTail = rawStatusTail.replace(pairRe, "·");
+
+        return;
+
+    }
+
+    // No complete pair anywhere — treat it as a genuine single-cell
+    // (dissipate) command ONLY when the cell number is complete (a non-digit
+    // follows, so it wasn't cut mid-number) and is NOT followed by an arrow.
+    // The "(?=\D)" stops a truncated "CELL0" from reading as cell 0; the
+    // negative lookahead stops a truncated pair like "BAL : CELL03 -> CE" from
+    // being misread as "discharge cell 3 only" and wrongly dropping the
+    // receiver.
+    const single = rawStatusTail.match(
+        /\bBAL\s*[:=]?\s*(?:CELL\s*[:=]?\s*)?(\d+)(?=\D)(?![\s\d]*[-,>])/i
+    );
+
+    if (single) {
+
+        setManualBalancePair(parseInt(single[1], 10) - 1, -1);
+
+        rawStatusTail = rawStatusTail.replace(single[0], "·");
 
     }
 
@@ -1101,8 +1148,9 @@ function applyRemoteSetting(fieldKey, rawValue) {
 //   $PARAM EQHIGH:4.000,STARTVOLTAGE:3.650,CELLS:16#
 //
 // Only the fields present in the reply are compared, so a partial reply is
-// fine. The reply is NEVER applied to the fields — this reports agreement
-// only, so a device mismatch can't silently overwrite what is on screen.
+// fine. When a field differs, the device's value is treated as the source of
+// truth and written into the dashboard field (input + slider, saved; the grid
+// resizes for CELLS), so the dashboard is brought into line with the board.
 
 let awaitingParams = false;
 let readParamTimer = null;
@@ -2234,6 +2282,17 @@ window.addEventListener("DOMContentLoaded", () => {
 
     loadEqSettings();
 
+    // Restore the last Docklight-selected balancing pair so START can resume
+    // it even after a page reload.
+    try {
+
+        const savedPair = localStorage.getItem("bmsLastManualPair");
+        if (savedPair) lastManualPair = JSON.parse(savedPair);
+
+    }
+
+    catch (e) { /* corrupt/blocked storage — start with no remembered pair */ }
+
     renderActivityLog();
 
     createCells();
@@ -2540,7 +2599,31 @@ function balancingCellIndices() {
     if (!balancingActive) return [];
 
     // Docklight named the pair — use its discharging cell.
-    if (manualBalancePair) return [manualBalancePair.sender];
+    if (manualBalancePair) {
+
+        // On a REAL device the board owns the transfer: show the selected
+        // sender until Docklight ends it with $BALSTOP.
+        if (!simulationEnabled) return [manualBalancePair.sender];
+
+        // In simulation the dashboard IS draining the cell, so the sender
+        // must drop out once it reaches the Starting Voltage — exactly like
+        // the auto-pick below. Without this, balancingCellIndices() never
+        // empties, finishBalancingIfSettled() never fires, balancingActive
+        // stays stuck true, and the drift walk (suppressed while balancing)
+        // freezes every Remote value until a $BALSTOP arrives.
+        const startV = parseFloat(document.getElementById("startVoltage").value);
+
+        // No threshold set — a simulated balance has no target to settle at,
+        // and applyActiveBalancing() moves nothing either. Returning the sender
+        // here would leave balancingActive stuck true and freeze the drift, so
+        // report nothing discharging and let it settle instead.
+        if (isNaN(startV)) return [];
+
+        return cellVoltages[manualBalancePair.sender] > startV
+            ? [manualBalancePair.sender]
+            : [];
+
+    }
 
     // On a REAL device the balancing pair is selected ONLY from Docklight
     // ($BALCELL). The dashboard never auto-picks cells for a real board — so
@@ -2733,9 +2816,11 @@ async function startBMS(transmit = true) {
 
     if (transmit) await sendSerialCommand("START");
 
-    // START also starts balancing (there is no separate balancing button).
-    // STOP stops it — see stopBMS below.
-    if (!balancingActive) await startBalancing(transmit);
+    // START also starts balancing (there is no separate balancing button) and
+    // STOP stops it — see stopBMS below. Always call startBalancing: it starts
+    // a fresh balance when idle, and when a Docklight pair is already live it
+    // just re-sends "$BALSTART#" so START always signals the device to start.
+    await startBalancing(transmit);
 
 }
 
@@ -2914,6 +2999,14 @@ function saveCellSnapshot() {
 // measured data is restored: simulated values regenerate on their own, and a
 // mismatched count means the pack was resized since the snapshot was taken.
 function restoreCellSnapshot() {
+
+    // Never in Remote Monitor / Automatic mode. The snapshot restore is only
+    // for keeping a REAL board's last readings across a refresh; running it in
+    // Automatic mode could restore a stale real-data snapshot from an earlier
+    // session in the same tab AND flip simulationEnabled off — which freezes
+    // the simulated values (no drift, no board). Simulated data regenerates on
+    // its own, so there is nothing to restore here anyway.
+    if (usingAutomaticValues()) return;
 
     try {
 
@@ -3306,7 +3399,19 @@ function applyActiveBalancing() {
     // every cell below it. Real boards resolve this the same way: move
     // what the low cell can absorb, burn off the remainder. Capping the
     // receiver here is what makes the pack actually settle.
-    cellVoltages[receiver] = Math.min(startVoltage, cellVoltages[receiver] + moved);
+    //
+    // A cell only ever GAINS charge as a receiver. A manually named receiver
+    // (from Docklight) can already sit above the start voltage; the cap below
+    // would otherwise drive it DOWN to the cap in one tick — a cell labelled
+    // ▲ CHARGING moving the wrong way. So only apply the change when it
+    // actually raises the receiver.
+    const receiverTarget = Math.min(startVoltage, cellVoltages[receiver] + moved);
+
+    if (receiverTarget > cellVoltages[receiver]) {
+
+        cellVoltages[receiver] = receiverTarget;
+
+    }
 
 }
 
@@ -4256,6 +4361,10 @@ function packAlreadyBalanced() {
 // receiver is -1 for "discharge only, no receiver".
 function setManualBalancePair(sender, receiver) {
 
+    // Balancing was stopped by hand — ignore Docklight's repeating command so
+    // it can't silently restart. START (or $BALSTART) lifts this block.
+    if (manualBalanceBlocked) return;
+
     if (isNaN(sender) || sender < 0 || sender >= CELL_COUNT) {
 
         showStatus(`⚠ Invalid Balancing Cell — ${isNaN(sender) ? "?" : sender + 1}`, "stop");
@@ -4273,6 +4382,20 @@ function setManualBalancePair(sender, receiver) {
 
     }
 
+    // Sticky receiver: the balancing command repeats every second on a busy
+    // byte stream, and one repeat can arrive with its "-> CELLxx" cut off —
+    // read as sender-only. That must NOT drop a receiver already set for the
+    // same discharging cell (which would flip "Cell 3 -> Cell 6" back to "Cell
+    // 3 dissipated"). Keep the known receiver. To genuinely switch to
+    // dissipate, name a different pair or stop first.
+    if (receiver === -1 && manualBalancePair &&
+        manualBalancePair.sender === sender &&
+        manualBalancePair.receiver !== -1) {
+
+        receiver = manualBalancePair.receiver;
+
+    }
+
     // Re-sending the SAME pair (a Docklight loop repeats the command every
     // couple of seconds) must be a no-op — no repaint, no message. Only an
     // actual change is acted on, so nothing spams the screen.
@@ -4284,9 +4407,41 @@ function setManualBalancePair(sender, receiver) {
 
     }
 
+    // A bare "$BALCELL" (no prior "$BALSTART") starts a fresh balancing
+    // session on its own. When it does, zero the per-cell tallies exactly like
+    // startBalancing — otherwise counts from the previous session carry over
+    // and can trip the over-balance lockout early. If balancing was already
+    // running (the normal BALSTART-then-BALCELL flow, or a mid-session pair
+    // change) the counts are left alone.
+    const startingFresh = !balancingActive;
+
     manualBalancePair = { sender, receiver };
 
+    // Remember this selection so START can resume it later without Docklight
+    // having to re-send the command — persisted so it survives a page reload.
+    lastManualPair = { sender, receiver };
+
+    try { localStorage.setItem("bmsLastManualPair", JSON.stringify(lastManualPair)); }
+    catch (e) { /* storage blocked — the in-memory copy still works this session */ }
+
     balancingActive = true;
+
+    if (startingFresh) {
+
+        balancingCycleCount++;
+
+        cellDischargeCount = new Array(CELL_COUNT).fill(0);
+        cellChargeCount = new Array(CELL_COUNT).fill(0);
+        cellOverBalLastWarn = new Array(CELL_COUNT).fill(0);
+        cellOverBalance = {};
+
+        cellDischargedThisCycle = new Array(CELL_COUNT).fill(false);
+        cellChargedThisCycle = new Array(CELL_COUNT).fill(false);
+
+        saveBalanceStats();
+        updateBalancingCycleStat();
+
+    }
 
     const box = document.getElementById("balancingBox");
     if (box) box.style.display = "flex";
@@ -4301,15 +4456,41 @@ function setManualBalancePair(sender, receiver) {
 
 async function startBalancing(transmit = true) {
 
-    // A dashboard-driven start uses the dashboard's own highest→lowest pick,
-    // so clear any pair Docklight had pinned.
-    manualBalancePair = null;
+    // START is the deliberate "go": lift the post-STOP block so Docklight's
+    // balancing command is honoured again.
+    manualBalanceBlocked = false;
+
+    // In SIMULATION the dashboard picks the pair itself (highest→lowest), so a
+    // dashboard START clears any pinned pair and starts fresh. On a REAL
+    // device the pair belongs to Docklight — pressing START must balance
+    // EXACTLY the cells Docklight selected (e.g. Cell 3 -> Cell 6), so the
+    // Docklight pair is kept, not wiped.
+    if (simulationEnabled) {
+
+        manualBalancePair = null;
+
+    }
+
+    // Real device: if no pair is currently pinned but Docklight named one
+    // earlier, re-apply it so START resumes that exact balance automatically —
+    // the operator doesn't have to re-send "BAL : CELL03 -> CELL06".
+    else if (!manualBalancePair && lastManualPair) {
+
+        manualBalancePair = { sender: lastManualPair.sender, receiver: lastManualPair.receiver };
+
+    }
 
 
-    // Independent of the BMS session — BALANCING START starts balancing on
-    // its own (sends "$BALSTART#"), and START never triggers it. No "start
-    // the BMS first" requirement.
-    if (balancingActive) return;
+    // Already balancing (e.g. a Docklight pair is live) — still signal
+    // "$BALSTART#" to Docklight so pressing START always tells the device to
+    // start balancing, then stop (nothing else to set up).
+    if (balancingActive) {
+
+        if (transmit) await sendSerialCommand("BALSTART");
+
+        return;
+
+    }
 
     // Reachable from the button, from startBMS(), and from a remote
     // "$BALSTART#" — so the per-cell lockout is enforced here, at the one
@@ -4436,6 +4617,12 @@ async function stopBalancing(transmit = true) {
 
     balancingActive = false;
 
+    // Latch balancing OFF: Docklight keeps re-sending its balancing command
+    // every second, and without this the very next one would restart the
+    // balance the operator just stopped. Cleared only by an explicit START /
+    // $BALSTART.
+    manualBalanceBlocked = true;
+
     // Any Docklight-pinned pair ends with the balance — the next start picks
     // fresh, whether it comes from Docklight or the dashboard.
     manualBalancePair = null;
@@ -4466,6 +4653,9 @@ async function stopBalancing(transmit = true) {
 
     document.getElementById("balancingBox").style.display = "none";
     document.getElementById("etaBox").style.display = "none";
+
+    // Flip the indicator back to red "BALANCING IDLE" at once.
+    updateBalancingStatus();
 
     showStatus("■ Balancing Stopped", "stop");
 
@@ -4498,7 +4688,37 @@ function formatDuration(seconds) {
 //
 // Called every tick while balancing, so the display follows the
 // voltages as cells settle and hand off to the next-highest.
+// The indicator button above START — RED "BALANCING IDLE" when nothing is
+// balancing, GREEN with the active pair when it is. Reads cellBalancing[] and
+// chargingCellIndex(), so it works the same in Automatic and Real Device mode.
+function updateBalancingStatus() {
+
+    const pill = document.getElementById("balancingStatus");
+    const text = document.getElementById("balancingStatusText");
+
+    if (!pill || !text) return;
+
+    const discharging = cellBalancing
+        .map((isBalancing, index) => (isBalancing ? index : -1))
+        .filter(index => index !== -1);
+
+    // The label is always "BALANCING"; the fill colour carries the state —
+    // red when idle, green when actually balancing. (The specific cells are
+    // named in the ⚖ BALANCING box below START.)
+    text.textContent = "BALANCING";
+
+    const active = balancingActive && discharging.length > 0;
+
+    pill.classList.toggle("active", active);
+    pill.classList.toggle("idle", !active);
+
+}
+
 function updateBalancingDisplay() {
+
+    // The indicator shows both states, so refresh it BEFORE the early return —
+    // this function runs every tick.
+    updateBalancingStatus();
 
     if (!balancingActive) return;
 
