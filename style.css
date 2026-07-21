@@ -1104,7 +1104,7 @@ body{
 
 /* OTHER BUTTONS */
 
-.left-panel button:not(.start-btn):not(.stop-btn):not(.bal-start-btn):not(.bal-stop-btn):not(.alert-pin){
+.left-panel button:not(.start-btn):not(.stop-btn):not(.bal-start-btn):not(.bal-stop-btn):not(.balancing-status):not(.alert-pin){
 
     background:var(--navy-600);
 
@@ -1113,13 +1113,13 @@ body{
     border:1px solid var(--border);
 }
 
-.left-panel button:not(.start-btn):not(.stop-btn):not(.bal-start-btn):not(.bal-stop-btn) .btn-icon{
+.left-panel button:not(.start-btn):not(.stop-btn):not(.bal-start-btn):not(.bal-stop-btn):not(.balancing-status) .btn-icon{
 
     background:rgba(14,116,144,.12);
 
 }
 
-.left-panel button:not(.start-btn):not(.stop-btn):not(.bal-start-btn):not(.bal-stop-btn):not(.alert-pin):hover{
+.left-panel button:not(.start-btn):not(.stop-btn):not(.bal-start-btn):not(.bal-stop-btn):not(.balancing-status):not(.alert-pin):hover{
 
     background:#e6edf5;
 
@@ -1165,9 +1165,9 @@ body{
 
     min-height:150px;
 
-    /* Neo-glass: frosted, semi-transparent, with a soft diagonal
-       highlight standing in for a 3D inner reflection bezel */
-    background:linear-gradient(135deg, rgba(255,255,255,.9) 0%, rgba(245,247,250,.7) 100%);
+    /* Default cell — light blue. High / low / charging / discharging cells
+       override this with their own tint so they stand out from the rest. */
+    background:linear-gradient(135deg, #eaf4fd 0%, #d7ebfa 100%);
 
     backdrop-filter:blur(12px);
 
@@ -1271,6 +1271,9 @@ body{
 
     --c:#ef4444 !important;
 
+    /* Red tint so the highest cell stands out from the light-blue default. */
+    background:linear-gradient(135deg, #fdecec 0%, #fad9d9 100%);
+
     border-width:2px;
 
     border-color:rgba(239,68,68,.5);
@@ -1312,6 +1315,9 @@ body{
 .cell.cell-low{
 
     --c:#10b981 !important;
+
+    /* Green tint so the lowest cell stands out from the light-blue default. */
+    background:linear-gradient(135deg, #e6f7ef 0%, #cdefdd 100%);
 
     border-width:2px;
 
@@ -1372,6 +1378,10 @@ body{
 
 .cell.balancing{
 
+    /* Amber tint for the discharging cell — warm, distinct from the blue
+       default and the green/teal low/charging cells. */
+    background:linear-gradient(135deg, #fdf1e0 0%, #fbe3c2 100%);
+
     border-color:rgba(217,119,6,.45);
 
     box-shadow:
@@ -1379,6 +1389,12 @@ body{
         0 0 20px rgba(217,119,6,.2);
 
     animation:gentlePulseAmber 2s ease-in-out infinite;
+
+    /* Grow the two cells being balanced so they stand out from the rest
+       of the pack at a glance; lift them above their neighbours so the
+       scaled edges are never clipped by an adjacent card. */
+    transform:scale(1.07);
+    z-index:3;
 
 }
 
@@ -1408,6 +1424,11 @@ body{
 
 .cell.charging{
 
+    /* Teal tint for the charging cell — a distinct green-blue so "receiving
+       charge" reads apart from both the green LOW cell and the amber
+       discharging cell. */
+    background:linear-gradient(135deg, #dff5f2 0%, #c3ece7 100%);
+
     border-color:rgba(22,163,74,.45);
 
     box-shadow:
@@ -1415,6 +1436,11 @@ body{
         0 0 20px rgba(22,163,74,.2);
 
     animation:gentlePulseGreen 2s ease-in-out infinite;
+
+    /* Same enlargement as the discharging cell, so the giving/receiving
+       pair reads as one highlighted unit larger than the others. */
+    transform:scale(1.07);
+    z-index:3;
 
 }
 
@@ -1580,15 +1606,15 @@ body{
 
     color:#ffffff;
 
-    font-size:12px;
+    font-size:9px;
 
     font-weight:700;
 
-    letter-spacing:.5px;
+    letter-spacing:.4px;
 
     text-transform:uppercase;
 
-    padding:6px 20px;
+    padding:4px 14px;
 
     border-radius:6px 6px 0 0;
 
@@ -1608,9 +1634,9 @@ body{
 
     --pct:0;
 
-    width:70px;
+    width:92px;
 
-    height:70px;
+    height:92px;
 
     margin:0 auto 5px;
 
@@ -1637,9 +1663,9 @@ body{
 
 .cell-gauge-inner{
 
-    width:56px;
+    width:74px;
 
-    height:56px;
+    height:74px;
 
     border-radius:50%;
 
@@ -1659,7 +1685,7 @@ body{
 
     color:var(--c);
 
-    font-size:13px;
+    font-size:19px;
 
     font-weight:800;
 
@@ -2395,6 +2421,44 @@ body{
     gap:6px;
 
     min-width:0;
+
+}
+
+/* Balancing indicator above START — same shape, size and icon chip as the
+   START button (it inherits the base .left-panel button rules). Only the
+   gradient fill changes: STOP-red when idle, START-green when balancing. */
+.balancing-status{
+
+    color:#fff;
+
+    justify-content:center;
+
+    /* Match the START / STOP buttons' exact size (they get this from
+       .control-buttons button; this element sits just outside that box). */
+    width:100%;
+
+    margin-top:0;
+
+    padding:5px 6px;
+
+    font-size:10px;
+
+}
+
+/* Idle — filled with the STOP button's red gradient. */
+.balancing-status.idle{
+
+    background:linear-gradient(90deg,#e74c3c,#c0392b);
+
+}
+
+/* Balancing — filled with the START button's green gradient, and the same
+   gentle pulse the running START button uses. */
+.balancing-status.active{
+
+    background:linear-gradient(90deg,#1fbf6a,#2ecc71);
+
+    animation:pulse 1s infinite;
 
 }
 
