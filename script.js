@@ -887,6 +887,47 @@ function detectStatusMessages() {
 
 }
 
+// Balancing commands sent WITHOUT the $...# framing — e.g. plain
+// "BAL : CELL03 -> CELL06", "BALSTART", "BALSTOP" typed straight into
+// Docklight. The framed forms still work through applyRealDeviceLine();
+// this lets the same commands arrive unframed on the raw stream too.
+// Each match is blanked so it fires once, not on every chunk it lingers in.
+function detectPlainBalancingCommand() {
+
+    // BALSTART / BALSTOP as bare words (not part of a longer token).
+    const startStop = rawStatusTail.match(/\bBAL\s*(START|STOP)\b/i);
+
+    if (startStop) {
+
+        if (/START/i.test(startStop[1])) { if (!balancingActive) startBalancing(false); }
+        else { if (balancingActive) stopBalancing(false); }
+
+        rawStatusTail = rawStatusTail.replace(startStop[0], "·");
+
+        return;
+
+    }
+
+    // "BAL : CELL03 -> CELL06", "BAL:3,6", "BALCELL:3->6", or a lone
+    // "BAL : CELL03" (discharge only). "CELL" and the separators are all
+    // optional, mirroring the framed parser's accepted forms.
+    const pair = rawStatusTail.match(
+        /\bBAL\s*[:=]?\s*(?:CELL\s*[:=]?\s*)?(\d+)(?:\s*[-,>]+\s*(?:CELL\s*[:=]?\s*)?(\d+))?/i
+    );
+
+    if (pair) {
+
+        setManualBalancePair(
+            parseInt(pair[1], 10) - 1,
+            pair[2] !== undefined ? parseInt(pair[2], 10) - 1 : -1
+        );
+
+        rawStatusTail = rawStatusTail.replace(pair[0], "·");
+
+    }
+
+}
+
 // Messages from the board are framed as $...# rather than separated
 // by newlines, e.g.:
 // $CELL01:3500mV,CELL02:3400mV,CELL03:3600mV,CELL04:3600mV,CELL05:3200mV#
@@ -906,6 +947,11 @@ function handleRealDeviceChunk(chunk) {
     // stretch of raw input regardless, so the message survives to match.
     rawStatusTail = (rawStatusTail + chunk).slice(-400);
     detectStatusMessages();
+
+    // Balancing commands sent without $...# framing are picked up here, on
+    // the same raw buffer, so "BAL : CELL03 -> CELL06" works whether or not
+    // it is wrapped in a frame.
+    detectPlainBalancingCommand();
 
     realLineBuffer += chunk;
 
