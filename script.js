@@ -3980,12 +3980,23 @@ function checkWarnings() {
             if (cellOVFault[i]) texts.push({ text: "⚠ Over-Voltage", cls: "fault" });
             if (cellUVFault[i]) texts.push({ text: "⚠ Under-Voltage", cls: "fault" });
 
-            // ⚖ marks a cell the balancer is acting on; the arrow says
-            // which way charge is flowing. Both cells of the pair carry
-            // the scales — a charging cell is not itself "balancing" in
-            // the cellBalancing[] sense, but it is being balanced.
-            if (isBalancing) texts.push({ text: "⚖ ▼ DISCHARGING", cls: "discharging" });
-            if (isCharging) texts.push({ text: "⚖ ▲ CHARGING", cls: "charging" });
+            // The balancing pair each names its partner so the transfer reads
+            // as a set: the discharging cell shows where charge is going
+            // (⚡ OUT ▸ CELL 6), the charging cell where it comes from
+            // (⚡ IN ◂ CELL 3). Both badges flow-animate to show motion.
+            if (isBalancing) {
+
+                const to = receiver >= 0 ? ` ▸ CELL ${receiver + 1}` : "";
+                texts.push({ text: `⚡ OUT ▼${to}`, cls: "discharging" });
+
+            }
+
+            if (isCharging) {
+
+                const from = dischargingCells.length ? ` ◂ CELL ${dischargingCells[0] + 1}` : "";
+                texts.push({ text: `⚡ IN ▲${from}`, cls: "charging" });
+
+            }
 
             // Over-balancing warning from the board — an amber badge naming
             // the direction and run count. Expires if no fresh warning for
