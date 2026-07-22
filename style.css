@@ -1263,6 +1263,51 @@ body{
 
 }
 
+/* A balancing emblem inside the cell box marks the two cells being balanced —
+   ⚖ amber on the discharging (giving) cell, ⚖ teal on the charging
+   (receiving) cell. It replaces the plain corner dot on those cells so the
+   corner isn't crowded, and gently pulses to read as "active". */
+.cell.balancing::after,
+.cell.charging::after{
+
+    display:none;
+
+}
+
+.cell.balancing::before,
+.cell.charging::before{
+
+    position:absolute;
+
+    /* On the right side of the cell, vertically centred. */
+    top:50%;
+
+    right:10px;
+
+    transform:translateY(-50%);
+
+    font-size:32px;
+
+    line-height:1;
+
+    z-index:2;
+
+    animation:balSymPulse 1.3s ease-in-out infinite;
+
+}
+
+/* Discharging = ⚡ (energy leaving), charging = 🔋 (battery filling). */
+.cell.balancing::before{ content:"\26A1"; color:#b45309; }
+
+.cell.charging::before{ content:"\1F50B"; color:#0f766e; }
+
+@keyframes balSymPulse{
+
+    0%,100%{ transform:translateY(-50%) scale(1); opacity:.8; }
+    50%{ transform:translateY(-50%) scale(1.22); opacity:1; }
+
+}
+
 /* Every cell keeps the same uniform frosted-glass background — status
    is signalled by a gently pulsating glowing border instead of
    recoloring the whole card, so the grid stays visually consistent. */
@@ -1378,9 +1423,9 @@ body{
 
 .cell.balancing{
 
-    /* Amber tint for the discharging cell — warm, distinct from the blue
-       default and the green/teal low/charging cells. */
-    background:linear-gradient(135deg, #fdf1e0 0%, #fbe3c2 100%);
+    /* Bold amber for the discharging cell — clearly stronger than the
+       light-blue default and the teal charging cell. */
+    background:linear-gradient(135deg, #fde0ac 0%, #f9c266 100%);
 
     border-color:rgba(217,119,6,.45);
 
@@ -1424,10 +1469,10 @@ body{
 
 .cell.charging{
 
-    /* Teal tint for the charging cell — a distinct green-blue so "receiving
+    /* Bold teal for the charging cell — a distinct green-blue so "receiving
        charge" reads apart from both the green LOW cell and the amber
        discharging cell. */
-    background:linear-gradient(135deg, #dff5f2 0%, #c3ece7 100%);
+    background:linear-gradient(135deg, #bff0e7 0%, #8ce0d1 100%);
 
     border-color:rgba(22,163,74,.45);
 
@@ -1509,9 +1554,23 @@ body{
 
     color:#fff;
 
-    background:#d97706;
+    /* Flowing gradient — a light band sweeps across to show charge moving
+       OUT of this cell. */
+    background:linear-gradient(90deg, #b45309 0%, #f59e0b 50%, #b45309 100%);
+
+    background-size:200% 100%;
 
     border-color:#b45309;
+
+    animation:flowShimmer 1.4s linear infinite;
+
+}
+
+@keyframes flowShimmer{
+
+    0%{ background-position:200% 0; }
+
+    100%{ background-position:-200% 0; }
 
 }
 
@@ -1533,9 +1592,15 @@ body{
 
     color:#fff;
 
-    background:#16a34a;
+    /* Teal flowing gradient — matches the charging cell's fill and sweeps to
+       show charge moving IN. */
+    background:linear-gradient(90deg, #0f766e 0%, #14b8a6 50%, #0f766e 100%);
 
-    border-color:#15803d;
+    background-size:200% 100%;
+
+    border-color:#0f766e;
+
+    animation:flowShimmer 1.4s linear infinite;
 
 }
 
