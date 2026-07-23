@@ -4523,10 +4523,6 @@ function packAlreadyBalanced() {
 // receiver is -1 for "discharge only, no receiver".
 function setManualBalancePair(sender, receiver) {
 
-    // Balancing was stopped by hand — ignore Docklight's repeating command so
-    // it can't silently restart. START (or $BALSTART) lifts this block.
-    if (manualBalanceBlocked) return;
-
     // A cell has been balanced too many times — the over-balance protection is
     // active. Refuse to (re)start the pair here too, so a Docklight command or a
     // remote $BALSTART can't slip past the lockout. Cleared by pressing START on
@@ -4568,6 +4564,21 @@ function setManualBalancePair(sender, receiver) {
         manualBalancePair.receiver !== -1) {
 
         receiver = manualBalancePair.receiver;
+
+    }
+
+    // Balancing was stopped by hand — do NOT restart from Docklight's
+    // repeating command, but DO remember the pair it names: the operator may
+    // change the selection (say 3→6 to 3→5) while stopped, and the next START
+    // must resume the NEWEST pair, not the one from before the stop.
+    if (manualBalanceBlocked) {
+
+        lastManualPair = { sender, receiver };
+
+        try { localStorage.setItem("bmsLastManualPair", JSON.stringify(lastManualPair)); }
+        catch (e) { /* storage blocked — the in-memory copy still works */ }
+
+        return;
 
     }
 
