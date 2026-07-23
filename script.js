@@ -991,7 +991,7 @@ function detectPlainBalancingCommand() {
     // read a sender of 0 ("Invalid Balancing Cell — 0"). Requiring a non-digit
     // AFTER the number proves the number finished arriving; a number cut off at
     // the end of the buffer simply waits for the next chunk to complete.
-    const pairRe = /\bBAL\s*[:=]?\s*(?:CELL\s*[:=]?\s*)?(\d+)\s*[-,>]+\s*(?:CELL\s*[:=]?\s*)?(\d+)(?=\D)/ig;
+    const pairRe = /\bBAL\s*[:=]?\s*(?:C(?:ELL)?\s*[:=]?\s*)?(\d+)\s*[-,>]+\s*(?:C(?:ELL)?\s*[:=]?\s*)?(\d+)(?=\D)/ig;
 
     let m, lastPair = null;
 
@@ -1022,7 +1022,7 @@ function detectPlainBalancingCommand() {
     // being misread as "discharge cell 3 only" and wrongly dropping the
     // receiver.
     const single = rawStatusTail.match(
-        /\bBAL\s*[:=]?\s*(?:CELL\s*[:=]?\s*)?(\d+)(?=\D)(?![\s\d]*[-,>])/i
+        /\bBAL\s*[:=]?\s*(?:C(?:ELL)?\s*[:=]?\s*)?(\d+)(?=\D)(?![\s\d]*[-,>])/i
     );
 
     if (single) {
@@ -1477,12 +1477,13 @@ function applyRealDeviceLine(message) {
     // Docklight naming the balancing pair directly — cell 3 discharges into
     // cell 6. All of these forms are accepted, so it can be sent in the same
     // readable shape the dashboard reports it in:
-    //   $BAL : CELL03 -> CELL06#
+    //   $BAL : CELL03 -> CELL06#     $BAL : C3 -> C7#
     //   $BALCELL:3,6#      $BALCELL:3->6#      $BAL:3,6#
     //   $BALCELL:3#  /  $BAL:CELL03#   -> discharge only, no receiver
-    // "CELL" is optional, and the separator may be ":", "=", ",", "->" etc.
+    // The cell prefix may be "CELL", the short "C", or nothing at all, and the
+    // separator may be ":", "=", ",", "->" etc.
     const balCellMatch = cmd.match(
-        /^BAL\s*[:=]?\s*(?:CELL\s*[:=]?\s*)?(\d+)(?:\s*[-,>]+\s*(?:CELL\s*[:=]?\s*)?(\d+))?$/
+        /^BAL\s*[:=]?\s*(?:C(?:ELL)?\s*[:=]?\s*)?(\d+)(?:\s*[-,>]+\s*(?:C(?:ELL)?\s*[:=]?\s*)?(\d+))?$/
     );
 
     if (balCellMatch) {
