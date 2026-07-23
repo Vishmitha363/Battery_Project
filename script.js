@@ -252,9 +252,10 @@ function rollBalanceStatsIfNewDay() {
 const TICK_MS = 1500;
 
 // The balancer's duty cycle: it balances for BALANCE_ON_S, rests for
-// BALANCE_OFF_S, and repeats. The completion-time estimate stretches the
-// pure balancing time by these rest gaps. (1 min 40 s on, 5 s off.)
-const BALANCE_ON_S = 100;
+// BALANCE_OFF_S, and repeats. During the rest the dashboard shows idle but the
+// session stays active, and the completion-time estimate stretches the pure
+// balancing time by these rest gaps. (40 s on, 5 s off.)
+const BALANCE_ON_S = 40;
 const BALANCE_OFF_S = 5;
 
 // A real board bleeds at whatever rate its hardware bleeds at — the
@@ -277,6 +278,11 @@ let lastBalanceSample = null;
 // it depends on actually changes (the Equalizing Current or Starting
 // Voltage), because then the old projection really is wrong.
 let balanceDeadlineAt = null;
+
+// When the current balancing session's duty-cycle timing began. Used to work
+// out whether we are in an ON (balancing) or OFF (resting) part of the cycle.
+// null when not balancing.
+let balancePhaseStartAt = null;
 
 // ------------------------------
 // ACTIVITY LOG
@@ -455,6 +461,14 @@ let realPort = null;
 let realReader = null;
 let realDeviceConnected = false;
 let realLineBuffer = "";
+
+// com0com virtual ports can raise a transient "BreakError: Break received"
+// (a line glitch, often around a write) that errors the read stream. That is
+// NOT a real unplug, so instead of tearing down the session we reopen the same
+// port and keep going — up to a few quick retries, reset whenever a good frame
+// arrives.
+let breakRecoveryCount = 0;
+const MAX_BREAK_RECOVERY = 5;
 
 // When the board last sent a frame we could read cell voltages from.
 // null means "connected, but has never sent one". A board that goes
@@ -731,6 +745,8 @@ async function autoConnectRealDevice() {
 
 async function readRealDeviceLoop() {
 
+    let readLoopError = null;
+
     const decoder = new TextDecoderStream();
 
     const inputClosed = realPort.readable.pipeTo(decoder.writable);
@@ -755,6 +771,8 @@ async function readRealDeviceLoop() {
 
         console.log(error);
 
+        readLoopError = error;
+
     }
 
     finally {
@@ -763,10 +781,10 @@ async function readRealDeviceLoop() {
 
         await inputClosed.catch(() => {});
 
-        // realPort may already be null if the OS "disconnect" event fired
-        // first and closed it — guard so cleanup (and the disconnect dialog
-        // below) always runs instead of throwing on null.close().
-        if (realPort) await realPort.close().catch(() => {});
+        // Keep the port object so a transient break can reopen the SAME one.
+        const closingPort = realPort;
+
+        if (closingPort) await closingPort.close().catch(() => {});
 
         realPort = null;
 
@@ -775,6 +793,48 @@ async function readRealDeviceLoop() {
         // A deliberate logout is already navigating to login — don't fire a
         // "device disconnected" log/redirect on top of it.
         if (loggingOut) return;
+
+        // A com0com "BreakError" (and similar framing/parity/overrun line
+        // glitches) is NOT a real unplug — reopen the same port and carry on,
+        // so a write-triggered break doesn't kill the whole session. Bail to
+        // the normal disconnect flow only after too many breaks in a row.
+        const name = readLoopError && readLoopError.name ? readLoopError.name : "";
+        const msg = (readLoopError && readLoopError.message ? readLoopError.message : "").toLowerCase();
+        const isLineGlitch = name === "BreakError" || /break|framing|parity|overrun/i.test(msg);
+
+        if (isLineGlitch && closingPort && breakRecoveryCount < MAX_BREAK_RECOVERY) {
+
+            breakRecoveryCount++;
+
+            logEvent(`⚠ Serial Line Break — Reconnecting (${breakRecoveryCount}/${MAX_BREAK_RECOVERY})`, "error");
+
+            // Brief pause so the OS releases the port, then reopen the same one.
+            // If the reopen fails, don't die silently — fall back to the normal
+            // disconnect flow so the operator is told and the session stops.
+            setTimeout(async () => {
+
+                const reconnected = await connectToPort(closingPort);
+
+                if (!reconnected && !loggingOut) {
+
+                    logEvent("🔌 Real Device Disconnected — Reconnect Failed", "error");
+
+                    if (running) {
+
+                        logEvent("⛔ BMS Auto-Stopped — USB Device Disconnected", "error");
+                        stopBMS();
+
+                    }
+
+                    showDisconnectModal();
+
+                }
+
+            }, 300);
+
+            return;
+
+        }
 
         logEvent("🔌 Real Device Disconnected", "error");
 
@@ -1566,6 +1626,19 @@ function applyRealDeviceLine(message) {
     cellVoltages = updated;
 
     lastCellFrameAt = Date.now();
+
+    // A good frame got through — clear the break-retry count so an occasional
+    // future glitch still gets its full allowance of reconnects.
+    breakRecoveryCount = 0;
+
+    // Paint the new readings NOW, not on the next live tick. Cell frames can
+    // arrive several times a second — much faster than the 1.5s tick — so
+    // rendering only on the tick "samples" the stream and skips frames: three
+    // different voltage sets cycling in Docklight would look like only one or
+    // two ever display. Rendering here shows every frame as it arrives.
+    renderCells();
+    updateStats(false);
+    checkWarnings();
 
 }
 
@@ -2475,7 +2548,11 @@ function sendSerialText(text) {
 
         catch (error) {
 
-            console.log(error);
+            // A failed write means Docklight receives nothing. With com0com a
+            // "BreakError: Break received" here is a virtual-port line condition
+            // (usually the pair's "emulate baud rate" setting), not a dashboard
+            // bug — flag it clearly so it isn't mistaken for a silent no-op.
+            console.warn("⚠ Serial WRITE failed — Docklight will NOT receive this frame:", error && error.name, error && error.message);
 
         }
 
@@ -2554,7 +2631,24 @@ function sendActionLine(description) {
 // human-readable line the operator reads in Docklight.
 async function sendSerialCommand(command) {
 
-    if (!realPort || !realPort.writable) return;
+    // Make the "why nothing was sent" case LOUD instead of a silent return, so
+    // it's obvious in the console why Docklight receives nothing: either no
+    // real port is connected, or the connected port exposes no writable stream.
+    if (!realPort) {
+
+        console.warn(`⚠ Cannot send "${command}" — NO real serial port connected (dashboard is on simulated data or the port never opened). Connect to Docklight's com0com partner port.`);
+
+        return;
+
+    }
+
+    if (!realPort.writable) {
+
+        console.warn(`⚠ Cannot send "${command}" — the connected port has NO writable stream (read-only). Info:`, realPort.getInfo && realPort.getInfo());
+
+        return;
+
+    }
 
     await sendSerialText(`$${command}#`);
 
@@ -2597,6 +2691,11 @@ function toMillivolts(volts) {
 function balancingCellIndices() {
 
     if (!balancingActive) return [];
+
+    // Duty cycle: during the OFF rest nothing is balancing (the session stays
+    // active). Report nothing discharging so the cells, badges, box and button
+    // all read idle — then balancing resumes when the ON part comes back.
+    if (balancerResting()) return [];
 
     // Docklight named the pair — use its discharging cell.
     if (manualBalancePair) {
@@ -2698,7 +2797,7 @@ function formatBalanceReport() {
 
 let lastBalanceReportAt = 0;
 
-function sendBalanceReport() {
+function sendBalanceReport(force = false) {
 
     if (!realPort || !realPort.writable) return;
 
@@ -2706,16 +2805,18 @@ function sendBalanceReport() {
     // so echoing a full report back every tick overruns the port. Throttle
     // it to once every 2 seconds — often enough to watch in Docklight, slow
     // enough to keep the port from saturating. In simulation the dashboard
-    // IS the source, so it streams every tick.
-    if (!simulationEnabled) {
+    // IS the source, so it streams every tick. force=true (a START / STOP /
+    // pair change) bypasses the throttle so the new status reaches Docklight
+    // immediately rather than up to 2 s later.
+    if (!simulationEnabled && !force) {
 
         const now = Date.now();
 
         if (now - lastBalanceReportAt < 2000) return;
 
-        lastBalanceReportAt = now;
-
     }
+
+    lastBalanceReportAt = Date.now();
 
     const report = formatBalanceReport();
 
@@ -2821,6 +2922,11 @@ async function startBMS(transmit = true) {
     // a fresh balance when idle, and when a Docklight pair is already live it
     // just re-sends "$BALSTART#" so START always signals the device to start.
     await startBalancing(transmit);
+
+    // Push the balancing status to Docklight right away — the pair if one is
+    // active, or "BAL : IDLE" if none — so pressing START always produces an
+    // immediate BAL line in Docklight instead of waiting for the next tick.
+    sendBalanceReport(true);
 
 }
 
@@ -3227,9 +3333,28 @@ function estimateBalanceSeconds() {
 
     if (isNaN(startVoltage) || rate <= 0) return null;
 
-    const excess = cellVoltages
-        .filter(v => v > startVoltage)
-        .map(v => v - startVoltage);
+    let excess;
+
+    if (!simulationEnabled && manualBalancePair) {
+
+        // Real device with a fixed Docklight pair: the board drains ONLY the
+        // named sender, so the finish time is that one cell's excess above the
+        // Starting Voltage — not the sum of every high cell (which the auto-pick
+        // rotation handles in simulation).
+        const v = cellVoltages[manualBalancePair.sender];
+
+        excess = v > startVoltage ? [v - startVoltage] : [];
+
+    }
+
+    else {
+
+        // Simulation auto-pick rotates through every cell above the threshold.
+        excess = cellVoltages
+            .filter(v => v > startVoltage)
+            .map(v => v - startVoltage);
+
+    }
 
     if (!excess.length) return null;
 
@@ -3263,6 +3388,27 @@ function balanceOffSeconds() {
 
     const v = parseFloat(document.getElementById("balanceOffTime")?.value);
     return !isNaN(v) && v >= 0 ? v : BALANCE_OFF_S;
+
+}
+
+// True during the OFF part of the duty cycle — the balancer is mid-session but
+// resting, so no charge moves and the dashboard shows idle, WITHOUT the session
+// stopping. Each cycle is ON seconds balancing then OFF seconds resting,
+// repeating from when balancing started.
+function balancerResting() {
+
+    if (!balancingActive || balancePhaseStartAt === null) return false;
+
+    const onS = balanceOnSeconds();
+    const offS = balanceOffSeconds();
+
+    if (offS <= 0) return false;
+
+    const elapsed = (Date.now() - balancePhaseStartAt) / 1000;
+
+    const position = elapsed % (onS + offS);
+
+    return position >= onS;
 
 }
 
@@ -3312,6 +3458,10 @@ function balanceCompletionClock() {
 function finishBalancingIfSettled() {
 
     if (!balancingActive || !simulationEnabled) return;
+
+    // During the duty-cycle rest balancingCellIndices() is empty on purpose —
+    // that is a scheduled pause, not the balance finishing. Don't stop.
+    if (balancerResting()) return;
 
     if (balancingCellIndices().length) return;
 
@@ -3798,13 +3948,18 @@ function logAlertChanges(alerts) {
 
     const current = new Map();
 
-    alerts
-        .filter(alert => alert.level !== "info")
-        .forEach(alert => current.set(alert.key, alert));
+    // ALL levels are tracked now — the floating banner is gone, so the
+    // Activity Log is where every alert lives: negative conditions logged
+    // red, informational ones (e.g. Balancing Active) in the normal style.
+    alerts.forEach(alert => current.set(alert.key, alert));
 
     current.forEach((alert, key) => {
 
-        if (!activeAlerts.has(key)) logEvent(alert.text, "error");
+        if (!activeAlerts.has(key)) {
+
+            logEvent(alert.text, alert.level === "info" ? "info" : "error");
+
+        }
 
     });
 
@@ -3816,6 +3971,10 @@ function logAlertChanges(alerts) {
         // by the cycle limit, which is worse, not better. Logging a green
         // "Cleared" line for those would read as good news.
         if (alert.noClearLog) return;
+
+        // Informational alerts end with their own log line ("Balancing
+        // Stopped") — an extra "Cleared" line would just be noise.
+        if (alert.level === "info") return;
 
         // Strip the leading warning glyph: the condition is over, so the
         // line should not still read as an alarm.
@@ -4235,19 +4394,11 @@ function checkWarnings() {
 
     logAlertChanges(alerts);
 
-    if (alerts.length) {
-
-        banner.innerHTML = alerts
-            .map(a => `<div class="warning-item level-${a.level}">${a.text}</div>`)
-            .join("");
-
-        banner.style.display = "flex";
-
-    } else {
-
-        banner.style.display = "none";
-
-    }
+    // The floating alert pills are no longer drawn over the dashboard —
+    // every alert goes to the Activity Log instead (logAlertChanges above):
+    // negative conditions in red, informational ones in the normal style,
+    // and a green "Cleared" line when a condition ends.
+    banner.style.display = "none";
 
 }
 
@@ -4376,6 +4527,19 @@ function setManualBalancePair(sender, receiver) {
     // it can't silently restart. START (or $BALSTART) lifts this block.
     if (manualBalanceBlocked) return;
 
+    // A cell has been balanced too many times — the over-balance protection is
+    // active. Refuse to (re)start the pair here too, so a Docklight command or a
+    // remote $BALSTART can't slip past the lockout. Cleared by pressing START on
+    // the dashboard, which begins a fresh session.
+    if (balancingLockedOut) {
+
+        showStatus("⛔ Balancing Disabled — A Cell Was Balanced Too Many Times", "stop");
+        logEvent("⛔ Balancing Refused — Over-Balance Lockout Active", "error");
+
+        return;
+
+    }
+
     if (isNaN(sender) || sender < 0 || sender >= CELL_COUNT) {
 
         showStatus(`⚠ Invalid Balancing Cell — ${isNaN(sender) ? "?" : sender + 1}`, "stop");
@@ -4439,6 +4603,9 @@ function setManualBalancePair(sender, receiver) {
 
     if (startingFresh) {
 
+        // Fresh Docklight-started session — begin the duty-cycle clock too.
+        balancePhaseStartAt = Date.now();
+
         balancingCycleCount++;
 
         cellDischargeCount = new Array(CELL_COUNT).fill(0);
@@ -4457,11 +4624,34 @@ function setManualBalancePair(sender, receiver) {
     const box = document.getElementById("balancingBox");
     if (box) box.style.display = "flex";
 
+    // Show and project the completion time (COMPLETES AT) for this pair — the
+    // Docklight-driven path and the START-resumes-pair path both come through
+    // here, so the ETA has to be set up here too, not only in startBalancing().
+    const etaBox = document.getElementById("etaBox");
+    if (etaBox) etaBox.style.display = "block";
+
+    resetBalanceEstimate();
+
     // Recompute cellBalancing / cellCharging from the new pair, then repaint
     // the balancing line, the cell badges, and Docklight.
     checkWarnings();
     updateBalancingDisplay();
     renderCells();
+
+    // Push the new balancing status to Docklight at once (BAL : CELL03 -> CELL06),
+    // not up to 2 s later on the next throttled tick.
+    sendBalanceReport(true);
+
+    // Resend a readable confirmation of the command back to Docklight, so the
+    // operator sees the dashboard acted on the pair it sent. Only fires on an
+    // actual pair change (repeats are deduped above), so it never spams.
+    const cellName = index => "CELL" + String(index + 1).padStart(2, "0");
+
+    sendActionLine(
+        receiver === -1
+            ? `BALANCING ${cellName(sender)} (REMOTE)`
+            : `BALANCING ${cellName(sender)} -> ${cellName(receiver)} (REMOTE)`
+    );
 
 }
 
@@ -4484,10 +4674,19 @@ async function startBalancing(transmit = true) {
 
     // Real device: if no pair is currently pinned but Docklight named one
     // earlier, re-apply it so START resumes that exact balance automatically —
-    // the operator doesn't have to re-send "BAL : CELL03 -> CELL06".
+    // the operator doesn't have to re-send "BAL : CELL03 -> CELL06". It is
+    // applied through setManualBalancePair(), EXACTLY like a live Docklight
+    // command: it activates and displays the pair and skips the simulation-only
+    // guards below (already-balanced / auto-pick) that would otherwise refuse
+    // to show a perfectly valid Docklight selection. (Current-zero and
+    // under-voltage are already enforced by startBMS before START ever runs.)
     else if (!manualBalancePair && lastManualPair) {
 
-        manualBalancePair = { sender: lastManualPair.sender, receiver: lastManualPair.receiver };
+        if (transmit) await sendSerialCommand("BALSTART");
+
+        setManualBalancePair(lastManualPair.sender, lastManualPair.receiver);
+
+        return;
 
     }
 
@@ -4571,6 +4770,10 @@ async function startBalancing(transmit = true) {
 
     balancingActive = true;
 
+    // Start the duty-cycle clock now: the first ON block begins here, with the
+    // first rest coming after BALANCE_ON seconds.
+    balancePhaseStartAt = Date.now();
+
     balancingCycleCount++;
 
     // Each START begins a fresh count: the per-cell charge/discharge
@@ -4640,6 +4843,9 @@ async function stopBalancing(transmit = true) {
 
     balanceDeadlineAt = null;
 
+    // Duty-cycle clock ends with the session.
+    balancePhaseStartAt = null;
+
     // The per-cell charge/discharge counts are left as they stand at STOP
     // (frozen, not cleared) so the final tally stays on screen — the next
     // START zeroes them again. Only the per-cycle participation flags clear
@@ -4648,6 +4854,11 @@ async function stopBalancing(transmit = true) {
     cellChargedThisCycle = new Array(CELL_COUNT).fill(false);
 
     saveBalanceStats();
+
+    // Recompute the cell states NOW (balancingActive is already false, so this
+    // clears every .balancing / .charging class, the ⚡/🔋 symbols and the
+    // amber/teal fills) instead of leaving them on screen until the next tick.
+    checkWarnings();
 
     renderCells();
 
@@ -4667,6 +4878,9 @@ async function stopBalancing(transmit = true) {
 
     // Flip the indicator back to red "BALANCING IDLE" at once.
     updateBalancingStatus();
+
+    // Tell Docklight it's idle now (BAL : IDLE), immediately.
+    sendBalanceReport(true);
 
     showStatus("■ Balancing Stopped", "stop");
 
@@ -4763,6 +4977,21 @@ function updateBalancingDisplay() {
         title.innerHTML = "⚖ BALANCING";
 
         list.innerHTML = "";
+
+        // Duty-cycle rest — a scheduled pause, not a stop. Say so, with a
+        // countdown to the next ON block, so it never looks like it quit.
+        if (balancerResting()) {
+
+            const onS = balanceOnSeconds();
+            const offS = balanceOffSeconds();
+            const position = ((Date.now() - balancePhaseStartAt) / 1000) % (onS + offS);
+            const restLeft = Math.max(1, Math.ceil((onS + offS) - position));
+
+            note.innerHTML = `⏸ Resting — resumes in ${restLeft}s`;
+
+            return;
+
+        }
 
         // On a real device the pair comes from Docklight, so an empty pair
         // simply means "none sent yet" — not a mis-set threshold.
