@@ -266,9 +266,11 @@ body{
 
 /* Left-column order: BMS Controls (0), then Voltage/Current/Power + quick
    controls row, then Battery Statistics, then the Activity Log. */
-.left-column .tp-row{ order:1; }
-.left-column #stats{ order:2; }
-.left-column .activity-log{ order:3; }
+/* Left column order: Balancer Control (0) → Battery Statistics (1) →
+   Activity Log (2) → Current/EQ/Automatic buttons (3). */
+.left-column #stats{ order:1; }
+.left-column .activity-log{ order:2; }
+.left-column .tp-row{ order:3; }
 
 /* Quick-control buttons — a full-width row of three EQUAL-width buttons.
    min-width:0 lets each shrink to the same 1/3 share; without it the
@@ -1238,13 +1240,13 @@ body{
 
     align-items:center;
 
-    font-size:10px;
+    font-size:13px;
 
     font-weight:800;
 
     letter-spacing:.5px;
 
-    padding:5px 10px;
+    padding:6px 13px;
 
     border-radius:10px;
 
@@ -1314,16 +1316,9 @@ body{
 
 .cell.cell-high{
 
-    --c:#ef4444 !important;
-
-    /* Red tint so the highest cell stands out from the light-blue default. */
-    background:linear-gradient(135deg, #fdecec 0%, #fad9d9 100%);
-
-    border-width:2px;
-
-    border-color:rgba(239,68,68,.5);
-
-    animation:gentlePulseRed 2s ease-in-out infinite;
+    /* HIGH cell is NOT highlighted — it looks like every other cell; only its
+       HIGH badge marks it. (No red tint / border / pulse.) */
+    animation:none;
 
 }
 
@@ -1359,16 +1354,9 @@ body{
 
 .cell.cell-low{
 
-    --c:#10b981 !important;
-
-    /* Green tint so the lowest cell stands out from the light-blue default. */
-    background:linear-gradient(135deg, #e6f7ef 0%, #cdefdd 100%);
-
-    border-width:2px;
-
-    border-color:rgba(16,185,129,.5);
-
-    animation:gentlePulseGreen 2s ease-in-out infinite;
+    /* LOW cell is NOT highlighted — it looks like every other cell; only its
+       LOW badge marks it. (No green tint / border / pulse.) */
+    animation:none;
 
 }
 
@@ -1699,9 +1687,9 @@ body{
 
     --pct:0;
 
-    width:92px;
+    width:106px;
 
-    height:92px;
+    height:106px;
 
     margin:0 auto 5px;
 
@@ -1728,9 +1716,9 @@ body{
 
 .cell-gauge-inner{
 
-    width:74px;
+    width:86px;
 
-    height:74px;
+    height:86px;
 
     border-radius:50%;
 
@@ -1750,9 +1738,14 @@ body{
 
     color:var(--c);
 
-    font-size:19px;
+    font-size:21px;
 
     font-weight:800;
+
+    /* Keep "3.874 V" on ONE line, centred inside the gauge. */
+    white-space:nowrap;
+
+    text-align:center;
 
 }
 
@@ -3640,4 +3633,44 @@ button:disabled{
     color:var(--text);
 
 }
+
+/* ==========================================
+   BIGGER TEXT — left-panel letters enlarged.
+   Text only; box sizes and layout unchanged.
+   Kept at the end so these sizes win the cascade.
+========================================== */
+
+/* Balancer Control */
+.left-panel h2{ font-size:16px; }
+.device-status{ font-size:13px; }
+.timer-box h3{ font-size:13px; }
+.timer-box h2{ font-size:20px; }
+.eta-box h3{ font-size:13px; }
+.eta-box h2{ font-size:18px; }
+.running-label{ font-size:13px; }
+.left-panel .balancing-status{ font-size:12px; }
+.control-buttons button{ font-size:12px; }
+.balancing-line .bal-title{ font-size:11px; }
+.balancing-line .bal-dis,
+.balancing-line .bal-chg,
+.balancing-line .bal-sep,
+.balancing-line .balancing-note{ font-size:12px; }
+
+/* Activity Log */
+.activity-log h2{ font-size:17px; }
+.log-tab-btn{ font-size:13px; }
+.log-export-btn,
+.log-clear-btn{ font-size:12px; }
+.log-entry .log-time{ font-size:12px; }
+.log-entry .log-message{ font-size:13px; }
+
+/* Battery Statistics */
+.stats-bar h3,
+#stats h3{ font-size:16px; }
+.stat-label{ font-size:14px; }
+.stat-value{ font-size:17px; }
+.stat-sub{ font-size:13px; }
+
+/* Current Zero / EQ Setting / Automatic */
+.bottom-controls button{ font-size:12.5px; }
 
