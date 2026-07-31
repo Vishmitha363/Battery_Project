@@ -284,6 +284,15 @@ let balanceDeadlineAt = null;
 // null when not balancing.
 let balancePhaseStartAt = null;
 
+// Fires the "did it finish by the estimated time?" check once per balancing
+// session — the moment the pack actually reaches balanced. Reset on start.
+let balanceCompletionChecked = false;
+
+// The high−low spread at the moment balancing started, so the graph's balancing
+// progress bar can show how far the pack has closed toward balanced. null when
+// not balancing.
+let balanceStartSpread = null;
+
 // ------------------------------
 // ACTIVITY LOG
 // ------------------------------
@@ -636,6 +645,12 @@ function setDeviceStatus(connected) {
             ? (connected ? "Port Open · Simulated Data" : "Simulated Data")
             : (connected ? "Real Device Data" : "No Device — No Data");
 
+    }
+
+    // Two-line badge sub-text: baud when a port is open, else "Not connected".
+    const sub = document.getElementById("deviceFreshness");
+    if (sub && !sub.textContent.trim().toLowerCase().includes("stale")) {
+        sub.textContent = connected ? (savedBaudRate() + " baud") : "Not connected";
     }
 
 }
@@ -1641,6 +1656,8 @@ function applyRealDeviceLine(message) {
     updateStats(false);
     checkWarnings();
 
+    if (graphOpen) renderGraph();
+
 }
 
 async function disconnectRealDevice() {
@@ -1682,7 +1699,20 @@ let logFileHandle = null;
 let logBytePosition = 0;
 let currentLogDate = null;
 let currentLogDataSource = null;
+let currentLogPack = null;
 let logQueue = Promise.resolve();
+
+// The pack number typed into the dashboard (real-device use). It is baked into
+// the CSV filename so every pack's readings are saved to their own file.
+// Sanitised to safe filename characters.
+function getPackNo() {
+
+    const el = document.getElementById("packNo");
+    const raw = el ? el.value.trim() : "";
+
+    return raw.replace(/[^A-Za-z0-9_-]/g, "");
+
+}
 
 // Real hardware readings and Automatic Values must never end up in
 // the same file — this decides which one today's rows belong in.
@@ -2042,10 +2072,15 @@ async function openTodayLogFile() {
 
     const dateStr = todayDateStr();
     const source = currentDataSourceLabel();
+    const packNo = getPackNo();
 
-    if (logFileHandle && currentLogDate === dateStr && currentLogDataSource === source) return true;
+    if (logFileHandle && currentLogDate === dateStr && currentLogDataSource === source && currentLogPack === packNo) return true;
 
-    const fileName = `BMS_Log_${source}_${dateStr}.csv`;
+    // File is named simply by the pack number — e.g. "Pack1.csv". The date and
+    // time are still recorded inside the file (the Date/Time columns of every
+    // row), so nothing is lost by keeping the name short. With no pack number
+    // typed, fall back to the descriptive default so logging still works.
+    const fileName = packNo ? `Pack${packNo}.csv` : `BMS_Log_${source}_${dateStr}.csv`;
 
     try {
 
@@ -2068,6 +2103,7 @@ async function openTodayLogFile() {
         logFileHandle = fileHandle;
         currentLogDate = dateStr;
         currentLogDataSource = source;
+        currentLogPack = packNo;
 
         const existing = await logFileHandle.getFile();
 
@@ -2151,10 +2187,10 @@ function logRow(row) {
 
     if (!logFileHandle) return;
 
-    // If the calendar day changed, or the data source changed (real
-    // device vs Automatic Values), roll over to the right file before
-    // writing the next row — the two sources must never share a file.
-    if (currentLogDate !== todayDateStr() || currentLogDataSource !== currentDataSourceLabel()) {
+    // If the calendar day changed, the data source changed (real device vs
+    // Automatic Values), or the pack number changed, roll over to the right
+    // file before writing the next row — each must have its own file.
+    if (currentLogDate !== todayDateStr() || currentLogDataSource !== currentDataSourceLabel() || currentLogPack !== getPackNo()) {
 
         logQueue = logQueue
             .then(() => openTodayLogFile())
@@ -2277,17 +2313,10 @@ function saveEqSetting(id) {
 
     if (input) localStorage.setItem(`eqSetting_${id}`, input.value);
 
-    // These inputs the balance projection is built from, so changing any
-    // invalidates it. Every path that changes a setting — the SET buttons,
-    // a remote "$SET ...#", the cell-count field — funnels through here, so
-    // this is the one place that needs to know.
-    if (balancingActive &&
-        (id === "currentLimit" || id === "startVoltage" ||
-         id === "balanceOnTime" || id === "balanceOffTime")) {
-
-        resetBalanceEstimate();
-
-    }
+    // The completion time is FIXED once a balance starts — changing the
+    // Equalizing Current / Starting Voltage / duty times mid-balance does NOT
+    // move COMPLETES AT. The new values apply to the NEXT balance. (So there is
+    // deliberately no re-projection here.)
 
 }
 
@@ -2367,6 +2396,21 @@ window.addEventListener("DOMContentLoaded", () => {
 
     catch (e) { /* corrupt/blocked storage — start with no remembered pair */ }
 
+    // Restore the saved pack number and keep it saved as it's edited, so it
+    // survives reloads and the CSV files stay named by pack.
+    const packInput = document.getElementById("packNo");
+
+    if (packInput) {
+
+        const savedPack = localStorage.getItem("bmsPackNo");
+        if (savedPack) packInput.value = savedPack;
+
+        packInput.addEventListener("input", () => {
+            localStorage.setItem("bmsPackNo", packInput.value);
+        });
+
+    }
+
     renderActivityLog();
 
     createCells();
@@ -2423,25 +2467,31 @@ function createCells() {
 
     for (let i = 1; i <= CELL_COUNT; i++) {
 
-        const color = CELL_COLORS[(i - 1) % CELL_COLORS.length];
-
         const div = document.createElement("div");
 
         div.className = "cell";
         div.id = `cellCard${i}`;
-        div.style.setProperty("--c", color);
+        // No per-cell accent colour — every cell looks identical at the
+        // start; only the charging / discharging state recolours a cell
+        // (handled by the .charging / .balancing class overrides in CSS).
 
         div.innerHTML = `
 
             <div class="cell-badge" id="cellBadge${i}"></div>
 
-            <span class="cell-chip">Cell ${i}</span>
+            <span class="cell-num">${i}</span>
 
-            <div class="cell-gauge" id="cellGauge${i}">
-                <div class="cell-gauge-inner">
-                    <span class="cell-voltage" id="cellVal${i}">0.000 V</span>
+            <div class="cell-cyl" id="cellGauge${i}">
+                <span class="cyl-cap"></span>
+                <div class="cell-cyl-body">
+                    <div class="cell-battery-fill" id="cellFill${i}"></div>
+                    <span class="cell-voltage" id="cellVal${i}">0.000</span>
+                    <span class="cyl-unit">V</span>
+                    <span class="cyl-bolt">⚡</span>
                 </div>
             </div>
+
+            <div class="cell-state" id="cellState${i}"></div>
 
             <div class="cell-msgs" id="cellMsg${i}"></div>
 
@@ -3057,6 +3107,11 @@ function liveDataTick() {
 
     applyActiveBalancing();
 
+    // Compare the actual finish against the estimated COMPLETES AT time and
+    // report on-time / late — must run BEFORE finishBalancingIfSettled(), which
+    // may stop the session (and clear balanceDeadlineAt) on the same tick.
+    checkBalanceCompletionVsEstimate();
+
     finishBalancingIfSettled();
 
     // Must run before anything reads the rate: updateBalancingDisplay()
@@ -3075,6 +3130,11 @@ function liveDataTick() {
     updateBalancingDisplay();
 
     sendBalanceReport();
+
+    // Sample the pack max/avg/min for the graph's Trend view, then redraw the
+    // graph if its modal is open.
+    recordGraphHistory();
+    if (graphOpen) renderGraph();
 
     // Keep the last readings in sessionStorage so a page refresh redraws the
     // cells with the values that were on screen, instead of dropping them all
@@ -3328,45 +3388,38 @@ function balanceRateIsMeasured() {
 // however many cells are over the threshold — they simply take turns.
 function estimateBalanceSeconds() {
 
-    const startVoltage = parseFloat(document.getElementById("startVoltage").value);
+    // Completion time is built from four things:
+    //   1. the Equalizing Current      → how fast a cell drains (the rate)
+    //   2. the balancing ON time (40 s) → duty cycle
+    //   3. the interval OFF time (5 s)  → duty cycle
+    //   4. the HIGH − LOW cell voltage difference → how much there is to close
 
-    const rate = dropVoltsPerSecond();
+    // 1. Rate the balancer drains at, straight from the Equalizing Current.
+    const current = parseFloat(document.getElementById("currentLimit").value);
 
-    if (isNaN(startVoltage) || rate <= 0) return null;
+    if (isNaN(current) || current <= 0) return null;
 
-    let excess;
+    const rate = (current * 0.002) / (TICK_MS / 1000);   // volts per second
 
-    if (!simulationEnabled && manualBalancePair) {
+    if (cellVoltages.length < 2) return null;
 
-        // Real device with a fixed Docklight pair: the board drains ONLY the
-        // named sender, so the finish time is that one cell's excess above the
-        // Starting Voltage — not the sum of every high cell (which the auto-pick
-        // rotation handles in simulation).
-        const v = cellVoltages[manualBalancePair.sender];
+    const maxV = Math.max(...cellVoltages);
+    const minV = Math.min(...cellVoltages);
 
-        excess = v > startVoltage ? [v - startVoltage] : [];
+    // No readings yet (every cell 0 V) — nothing to estimate.
+    if (maxV <= 0) return null;
 
-    }
+    // 4. The gap between the highest and lowest cell — what balancing closes.
+    const difference = maxV - minV;
 
-    else {
+    if (difference <= 0) return null;
 
-        // Simulation auto-pick rotates through every cell above the threshold.
-        excess = cellVoltages
-            .filter(v => v > startVoltage)
-            .map(v => v - startVoltage);
+    // Pure balancing time if the balancer ran non-stop.
+    const pureSeconds = difference / rate;
 
-    }
-
-    if (!excess.length) return null;
-
-    const total = excess.reduce((sum, v) => sum + v, 0);
-
-    // Pure balancing time — if the balancer ran continuously.
-    const pureSeconds = total / rate;
-
-    // Real balancer runs on a duty cycle set in Equalization Settings:
-    // balance for ON seconds, rest for OFF seconds, repeating. So wall-clock
-    // time is longer — add one OFF gap after each full ON block but the last.
+    // 2 & 3. Duty cycle: balance for ON seconds, rest for OFF seconds,
+    // repeating (40 s / 5 s from EQ Settings). Add one OFF gap after each full
+    // ON block but the last, so the wall-clock finish time includes the rests.
     const onS = balanceOnSeconds();
     const offS = balanceOffSeconds();
 
@@ -3448,6 +3501,77 @@ function balanceCompletionClock() {
 
 }
 
+// Once the pack has actually reached balanced (highest and lowest cell within
+// BALANCED_DIFF_V of each other), check whether it finished by the estimated
+// COMPLETES AT time — and report ON TIME / early / late. Fires exactly once per
+// balancing session. Works for real and simulated data alike, since it watches
+// the live high−low difference, the same quantity the estimate is built from.
+function checkBalanceCompletionVsEstimate() {
+
+    if (!balancingActive || balanceCompletionChecked) return;
+
+    if (cellVoltages.length < 2 || Math.max(...cellVoltages) <= 0) return;
+
+    const difference = Math.max(...cellVoltages) - Math.min(...cellVoltages);
+
+    // Not balanced yet — keep waiting.
+    if (difference > BALANCED_DIFF_V) return;
+
+    balanceCompletionChecked = true;
+
+    const now = Date.now();
+
+    const fmt = t => new Date(t).toLocaleTimeString([], {
+        hour: "numeric", minute: "2-digit", second: "2-digit"
+    });
+
+    // Report actual-vs-estimated finish (only if an estimate was made).
+    if (balanceDeadlineAt !== null) {
+
+        // Positive = finished LATER than estimated; negative/zero = on time.
+        const deltaSeconds = Math.round((now - balanceDeadlineAt) / 1000);
+
+        const estStr = fmt(balanceDeadlineAt);
+        const actStr = fmt(now);
+
+        if (deltaSeconds <= 0) {
+
+            const early = Math.abs(deltaSeconds);
+
+            logEvent(
+                `✅ Balancing Finished On Time — Estimated ${estStr}, Actual ${actStr}` +
+                (early ? ` (${early}s early)` : " (exact)"),
+                "success"
+            );
+
+        }
+
+        else {
+
+            logEvent(
+                `⚠ Balancing Took Longer Than Estimated — Estimated ${estStr}, Actual ${actStr} (+${deltaSeconds}s)`,
+                "error"
+            );
+
+        }
+
+    }
+
+    // Balancing is done — count it and AUTO-STOP the session, exactly like
+    // pressing STOP, so the button returns to idle on its own.
+    balancingCompletedCount++;
+    saveBalanceStats();
+
+    logEvent(`✅ Balancing Complete — Pack Balanced (${difference.toFixed(3)} V spread)`, "success");
+    showStatus("✅ Balancing Complete — Auto-Stopped", "success");
+
+    // Stop the whole session if START ran it; otherwise just stop balancing
+    // (a Docklight-only $BALSTART with no BMS session).
+    if (running) stopBMS();
+    else stopBalancing();
+
+}
+
 // Stops the balancer once no cell sits above the Starting Voltage, so a
 // finished balance reports itself instead of leaving the box up forever.
 //
@@ -3469,13 +3593,18 @@ function finishBalancingIfSettled() {
     balancingCompletedCount++;
 
     logEvent("✅ Balancing Complete — All Cells At Starting Voltage", "success");
+    showStatus("✅ Balancing Complete — Auto-Stopped", "success");
 
     // The whole-pack cycle limit was removed. Balancing is now bounded
     // only by the per-cell "balanced too many times" guard, not by a
     // count of full-pack cycles — so completing a cycle never locks out.
     saveBalanceStats();
 
-    stopBalancing();
+    // Auto-stop BOTH the balancing AND the BMS session — pressing STOP for the
+    // operator. stopBMS() stops the session and calls stopBalancing() itself;
+    // if there was no BMS session (Docklight-only balance), just stop balancing.
+    if (running) stopBMS();
+    else stopBalancing();
 
 }
 
@@ -3576,8 +3705,8 @@ function renderCells() {
 
         const voltage = cellVoltages[i - 1];
 
-        document.getElementById(`cellVal${i}`).innerHTML =
-            voltage.toFixed(3) + " V";
+        // Just the number — the "V" unit is a separate line in the cylinder.
+        document.getElementById(`cellVal${i}`).textContent = voltage.toFixed(3);
 
         // How many times this cell has been on each end of a transfer.
         const counts = document.getElementById(`cellCount${i}`);
@@ -3590,16 +3719,101 @@ function renderCells() {
 
         }
 
-        // Drives the circular gauge fill — purely visual, mapped across
-        // the 3.0V-4.0V simulated range (no numeric % shown to the user).
+        // Battery fill level — how full the cell reads, mapped across the
+        // 3.0V–4.0V range. The fill COLOUR carries the state: green while
+        // charging, red while discharging, yellow otherwise.
         const pct = Math.min(100, Math.max(0, ((voltage - 3.0) / 1.0) * 100));
 
-        const gauge = document.getElementById(`cellGauge${i}`);
+        const fill = document.getElementById(`cellFill${i}`);
 
-        if (gauge) gauge.style.setProperty("--pct", pct.toFixed(1));
+        const idx = i - 1;
+
+        // Solid cylinder — colour the whole cell by its voltage LEVEL
+        // (very-high / high / normal / low), like the reference pack.
+        const card0 = document.getElementById(`cellCard${i}`);
+        if (card0) {
+            card0.classList.remove("lvl-normal", "lvl-high", "lvl-veryhigh", "lvl-low");
+            card0.classList.add("lvl-" + cellLevel(i - 1));
+        }
+        if (fill) fill.style.height = "100%";
+
+        // Direction label under the cell — only for the active pair.
+        const state = document.getElementById(`cellState${i}`);
+
+        if (state) {
+
+            if (cellCharging[idx]) {
+                state.textContent = "▲ CHARGING";
+                state.className = "cell-state chg";
+            } else if (cellBalancing[idx]) {
+                state.textContent = "▼ DISCHARGING";
+                state.className = "cell-state dis";
+            } else {
+                state.textContent = "";
+                state.className = "cell-state";
+            }
+
+        }
 
     }
 
+    updateTopMetrics();
+
+}
+
+// Voltage-LEVEL bucket for the solid cylinder colour (reference-pack style):
+//   veryhigh (red)  = the highest cell, or an over-voltage fault
+//   low (blue)      = the lowest cell, or an under-voltage fault
+//   high (yellow)   = clearly above the pack average (but not the max)
+//   normal (green)  = everything else
+function cellLevel(i) {
+
+    const vals = cellVoltages;
+    if (!vals.length) return "normal";
+
+    if (cellOVFault[i]) return "veryhigh";
+    if (cellUVFault[i]) return "low";
+
+    const max = Math.max(...vals), min = Math.min(...vals);
+    const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+
+    if (vals[i] >= max) return "veryhigh";
+    if (vals[i] <= min) return "low";
+    if (vals[i] >= avg + 0.03) return "high";
+    return "normal";
+}
+
+// Populate the top metric cards + summary cards (redesign) from REAL data:
+// pack voltage = sum of cells, current from the setting, power/cycles mirror
+// the values already computed for Battery Statistics, spread/avg/health derived.
+function updateTopMetrics() {
+
+    const vals = cellVoltages;
+    if (!vals.length || Math.max(...vals) <= 0) return;
+
+    const max = Math.max(...vals), min = Math.min(...vals);
+    const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+    const sum = vals.reduce((a, b) => a + b, 0);
+    const cur = parseFloat(document.getElementById("currentLimit")?.value) || 0;
+
+    const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+    const mirror = (id, from) => { const f = document.getElementById(from); if (f) set(id, f.textContent); };
+
+    set("packVoltage", sum.toFixed(2) + " V");
+    set("packCurrent", cur.toFixed(2) + " A");
+    mirror("packPower", "balancerPower");
+    set("packSpread", (max - min).toFixed(3) + " V");
+    mirror("packCycles", "balancingCycles");
+    set("packCells", CELL_COUNT);
+    set("packCellsHead", CELL_COUNT);
+
+    set("sumMax", "Cell " + (vals.indexOf(max) + 1) + " (" + max.toFixed(3) + " V)");
+    set("sumMin", "Cell " + (vals.indexOf(min) + 1) + " (" + min.toFixed(3) + " V)");
+    set("sumAvg", avg.toFixed(3) + " V");
+    set("sumDiff", (max - min).toFixed(3) + " V");
+
+    const h = (typeof packHealth === "function") ? packHealth() : { label: "-" };
+    set("sumHealth", h.label);
 }
 
 // ======================================
@@ -3893,6 +4107,11 @@ function resizeCellCount(newCount) {
     cellChargeCount = new Array(CELL_COUNT).fill(0);
     cellDischargedThisCycle = new Array(CELL_COUNT).fill(false);
     cellChargedThisCycle = new Array(CELL_COUNT).fill(false);
+
+    // The pack changed shape — a graph cell selection / highlight from the old
+    // size no longer maps to anything, so clear them.
+    if (selectedGraphCell !== null && selectedGraphCell >= CELL_COUNT) selectedGraphCell = null;
+    graphHighlightGroup = null;
 
     createCells();
 
@@ -4618,6 +4837,14 @@ function setManualBalancePair(sender, receiver) {
         // Fresh Docklight-started session — begin the duty-cycle clock too.
         balancePhaseStartAt = Date.now();
 
+        // Arm the actual-vs-estimated completion check for this new session.
+        balanceCompletionChecked = false;
+
+        // Snapshot the starting spread for the graph's progress bar.
+        balanceStartSpread = (Math.max(...cellVoltages) > 0)
+            ? Math.max(...cellVoltages) - Math.min(...cellVoltages)
+            : null;
+
         balancingCycleCount++;
 
         cellDischargeCount = new Array(CELL_COUNT).fill(0);
@@ -4786,6 +5013,14 @@ async function startBalancing(transmit = true) {
     // first rest coming after BALANCE_ON seconds.
     balancePhaseStartAt = Date.now();
 
+    // Arm the actual-vs-estimated completion check for this new session.
+    balanceCompletionChecked = false;
+
+    // Snapshot the starting spread for the graph's progress bar.
+    balanceStartSpread = (Math.max(...cellVoltages) > 0)
+        ? Math.max(...cellVoltages) - Math.min(...cellVoltages)
+        : null;
+
     balancingCycleCount++;
 
     // Each START begins a fresh count: the per-cell charge/discharge
@@ -4799,6 +5034,10 @@ async function startBalancing(transmit = true) {
     // A fresh cycle: every cell may be counted once again.
     cellDischargedThisCycle = new Array(CELL_COUNT).fill(false);
     cellChargedThisCycle = new Array(CELL_COUNT).fill(false);
+
+    // Start each cell's per-cell graph fresh from this moment, so the chart
+    // spans the whole session — from balancing START right through to the end.
+    graphHistory = [];
 
     saveBalanceStats();
 
@@ -4857,6 +5096,7 @@ async function stopBalancing(transmit = true) {
 
     // Duty-cycle clock ends with the session.
     balancePhaseStartAt = null;
+    balanceStartSpread = null;
 
     // The per-cell charge/discharge counts are left as they stand at STOP
     // (frozen, not cleared) so the final tally stays on screen — the next
@@ -4939,12 +5179,13 @@ function updateBalancingStatus() {
         .map((isBalancing, index) => (isBalancing ? index : -1))
         .filter(index => index !== -1);
 
-    // The label is always "BALANCING"; the fill colour carries the state —
-    // red when idle, green when actually balancing. (The specific cells are
-    // named in the ⚖ BALANCING box below START.)
-    text.textContent = "BALANCING";
+    // Two-line badge: "Balancing" on top, Active / Resting / Idle below.
+    text.textContent = "Balancing";
 
     const active = balancingActive && discharging.length > 0;
+
+    const sub = document.getElementById("balancingStatusSub");
+    if (sub) sub.textContent = active ? "Active" : (balancingActive ? "Resting" : "Idle");
 
     pill.classList.toggle("active", active);
     pill.classList.toggle("idle", !active);
@@ -5059,19 +5300,9 @@ function updateBalancingDisplay() {
 
     list.innerHTML = rows.join(" ");
 
-    // The projection ran out but cells are still draining — the original
-    // estimate was simply short. Re-project once, rather than parking on
-    // "1s remaining" for the rest of the balance. Also project the moment
-    // an estimate first becomes possible — a rate just got measured, or an
-    // Equalizing Current was set after balancing already started — since in
-    // that case there was never a deadline to expire.
-    if (estimateBalanceSeconds() !== null &&
-        (balanceDeadlineAt === null || balanceSecondsRemaining() === 0)) {
-
-        resetBalanceEstimate();
-
-    }
-
+    // The completion time is FIXED: it is projected ONCE when balancing starts
+    // and never re-calculated, so COMPLETES AT stays put for the whole balance
+    // instead of drifting. (No re-projection here on purpose.)
     const clock = balanceCompletionClock();
 
     // Show the clock time it should finish, not a countdown. No rate means
@@ -5080,8 +5311,7 @@ function updateBalancingDisplay() {
     // fact, a configured one is a guess.
     note.innerHTML = clock === null
         ? "Set an Equalizing Current to estimate"
-        : `Completes at ${clock} ` +
-          `(${balanceRateIsMeasured() ? "measured" : "from set current"})`;
+        : `Completes at ${clock} (from current & cell difference)`;
 
     // Same completion time, mirrored under RUNNING TIME.
     const eta = document.getElementById("balanceEta");
@@ -5373,3 +5603,1803 @@ window.onload = function () {
     document.getElementById("runningLabel").style.display = "none";
 
 };
+
+// ======================================
+// CELL VOLTAGE GRAPH
+// A bar chart of every cell's live voltage, opened from the GRAPH button.
+// Bars are coloured by STATE (highest / lowest / discharging / charging /
+// normal) — matching the dashboard — rather than a per-cell rainbow, so the
+// interesting cells read at a glance. Redrawn live while the modal is open.
+// ======================================
+
+let graphOpen = true;             // graph is embedded inline on the dashboard now
+let selectedGraphCell = null;     // cell index clicked for detail, or null
+let graphHighlightGroup = null;   // a state group to highlight, or null
+let graphView = "voltage";        // "voltage" | "deviation" | "sorted" | "trend"
+let graphChart = null;            // analysis chart: convergence|spread|gantt|energy|histogram|deviation
+
+// Rolling history of pack max / avg / min (with timestamps) for the Trend view,
+// sampled every live tick regardless of whether the graph is open, so the trend
+// already has data the moment it is opened.
+let graphHistory = [];
+// High cap so a full balancing session fits start→end (≈ 1 hour at a 1.5 s
+// tick). The oldest points still drop past this, but a normal session is well
+// within it, so each cell's chart shows the whole run.
+const GRAPH_HISTORY_MAX = 2400;
+
+function recordGraphHistory() {
+
+    if (!cellVoltages.length) return;
+
+    const maxV = Math.max(...cellVoltages);
+    if (maxV <= 0) return;
+
+    const now = Date.now();
+
+    const minV = Math.min(...cellVoltages);
+    const avg = cellVoltages.reduce((a, b) => a + b, 0) / cellVoltages.length;
+
+    // Store EVERY cell's voltage AND its state (0 idle, 1 discharging,
+    // 2 charging) at this instant, so any single cell's trend can be split
+    // into "idle" vs "balancing" voltage later.
+    const states = cellVoltages.map((_, i) =>
+        cellCharging[i] ? 2 : cellBalancing[i] ? 1 : 0);
+
+    graphHistory.push({ t: now, cells: cellVoltages.slice(), states, max: maxV, avg, min: minV });
+
+    if (graphHistory.length > GRAPH_HISTORY_MAX) graphHistory.shift();
+
+}
+
+// A one-line health verdict for the pack, shown as a badge in the graph header.
+function packHealth() {
+
+    if (!cellVoltages.length || Math.max(...cellVoltages) <= 0) {
+        return { label: "No Data", cls: "gh-none" };
+    }
+
+    if (balancingActive) return { label: "Balancing", cls: "gh-bal" };
+
+    const spread = Math.max(...cellVoltages) - Math.min(...cellVoltages);
+    const diffLimit = parseFloat(document.getElementById("diffLimit")?.value);
+
+    if (spread <= BALANCED_DIFF_V) return { label: "Balanced", cls: "gh-good" };
+    if (!isNaN(diffLimit) && spread > diffLimit) return { label: "Imbalanced", cls: "gh-bad" };
+
+    return { label: "In Range", cls: "gh-ok" };
+
+}
+
+// Only charging (green) and discharging (red) get a distinct colour; every
+// other cell — normal, highest, lowest alike — is yellow, matching the
+// battery-shaped cells on the dashboard.
+// Match the battery cells: normal = yellow, discharging = red, charging = green.
+const GRAPH_GROUP_COLOR = { normal: "#f5c518", dis: "#ef4444", chg: "#22c55e" };
+const GRAPH_GROUP_NAME  = { normal: "Normal",  dis: "Discharging", chg: "Charging" };
+
+// Set true just before a render that should play entrance animations (grow
+// bars / draw the line). Consumed — reset to false — at the end of renderGraph,
+// so the per-tick live refreshes don't re-trigger the intro every 1.5 s.
+let graphAnimate = false;
+
+// The graph is embedded inline on the dashboard; "open" just scrolls to it.
+function openGraph() {
+
+    graphOpen = true;
+    graphAnimate = true;
+    renderGraph();
+
+    const card = document.getElementById("graphInlineCard");
+    if (card && card.scrollIntoView) card.scrollIntoView({ behavior: "smooth", block: "center" });
+
+}
+
+// Kept for callers (logout/restart) — the inline graph stays rendered.
+function closeGraph() { /* inline graph — nothing to close */ }
+
+// Click a bar → toggle its detail panel.
+function selectGraphCell(i) {
+
+    selectedGraphCell = (selectedGraphCell === i) ? null : i;
+    graphAnimate = true;
+    renderGraph();
+
+}
+
+// Step to the previous / next cell in the single-cell view (wraps around).
+function stepGraphCell(delta) {
+
+    if (selectedGraphCell === null) return;
+    selectedGraphCell = (selectedGraphCell + delta + CELL_COUNT) % CELL_COUNT;
+    graphChart = null;
+    graphHighlightGroup = null;
+    graphAnimate = true;
+    renderGraph();
+
+}
+
+// Jump straight to a cell from the chip strip.
+function jumpGraphCell(i) {
+
+    selectedGraphCell = i;
+    graphChart = null;
+    graphHighlightGroup = null;
+    graphAnimate = true;
+    renderGraph();
+
+}
+
+// Build the ◀ ▶ + C1…Cn chip strip; only visible in the single-cell view.
+function renderGraphCellNav() {
+
+    const nav = document.getElementById("graphCellNav");
+    if (!nav) return;
+
+    if (selectedGraphCell === null) {
+        nav.style.display = "none";
+        nav.innerHTML = "";
+        return;
+    }
+
+    let chips = "";
+    for (let i = 0; i < CELL_COUNT; i++) {
+        chips += `<button type="button" class="gnav-chip${i === selectedGraphCell ? " active" : ""}" onclick="jumpGraphCell(${i})">${i + 1}</button>`;
+    }
+
+    nav.style.display = "flex";
+    nav.innerHTML =
+        `<button type="button" class="gnav-arrow" onclick="stepGraphCell(-1)" title="Previous cell">◀</button>` +
+        `<div class="gnav-chips">${chips}</div>` +
+        `<button type="button" class="gnav-arrow" onclick="stepGraphCell(1)" title="Next cell">▶</button>`;
+
+}
+
+// Build the "Show" dropdown: All cells, then group filters (charging /
+// discharging / normal / warning / critical), then every individual cell.
+// Rebuilt only when the cell count changes.
+function populateCellSelect() {
+
+    const sel = document.getElementById("graphCellSelect");
+    if (!sel) return;
+
+    if (sel.dataset.count === String(CELL_COUNT)) return;
+    sel.dataset.count = String(CELL_COUNT);
+
+    let html = `<option value="all">All cells (bars)</option>`;
+
+    html += `<optgroup label="Analysis charts">`;
+    html += `<option value="chart:multiples">🔲 All cells — separate mini-charts</option>`;
+    html += `<option value="chart:convergence">📉 Convergence band (Max/Avg/Min)</option>`;
+    html += `<option value="chart:spread">📈 Spread closing (mV → target)</option>`;
+    html += `<option value="chart:gantt">📊 Balancing timeline (per cell)</option>`;
+    html += `<option value="chart:energy">⚡ Energy moved (donor vs receiver)</option>`;
+    html += `<option value="chart:deviation">🎯 Deviation bars (from average)</option>`;
+    html += `<option value="chart:histogram">📶 Voltage distribution</option>`;
+    html += `</optgroup>`;
+
+    html += `<optgroup label="Cell groups">`;
+    html += `<option value="g:chg">⚡ Charging cells</option>`;
+    html += `<option value="g:dis">🔻 Discharging cells</option>`;
+    html += `<option value="g:normal">🟡 Normal cells</option>`;
+    html += `<option value="g:warning">⚠ Warning cells</option>`;
+    html += `<option value="g:critical">⛔ Critical cells</option>`;
+    html += `</optgroup>`;
+
+    html += `<optgroup label="Individual cells">`;
+    for (let i = 0; i < CELL_COUNT; i++) html += `<option value="c:${i}">Cell ${i + 1}</option>`;
+    html += `</optgroup>`;
+
+    sel.innerHTML = html;
+
+}
+
+// Dropdown changed → either focus one cell (c:N), filter a group (g:key),
+// or clear back to all cells.
+function onCellSelectChange(val) {
+
+    if (val && val.indexOf("c:") === 0) {
+        selectedGraphCell = parseInt(val.slice(2), 10);
+        graphHighlightGroup = null;
+        graphChart = null;
+    } else if (val && val.indexOf("g:") === 0) {
+        graphHighlightGroup = val.slice(2);
+        selectedGraphCell = null;
+        graphChart = null;
+    } else if (val && val.indexOf("chart:") === 0) {
+        graphChart = val.slice(6);
+        selectedGraphCell = null;
+        graphHighlightGroup = null;
+    } else {
+        selectedGraphCell = null;
+        graphHighlightGroup = null;
+        graphChart = null;
+    }
+
+    graphAnimate = true;
+    renderGraph();
+
+}
+
+// The value the "Show" dropdown should display for the current selection.
+function currentShowValue() {
+
+    if (graphChart) return "chart:" + graphChart;
+    if (selectedGraphCell !== null) return "c:" + selectedGraphCell;
+    if (graphHighlightGroup) return "g:" + graphHighlightGroup;
+    return "all";
+
+}
+
+// Programmatic group filter (still used elsewhere) → highlight one group.
+function toggleGraphGroup(group) {
+
+    graphHighlightGroup = (graphHighlightGroup === group) ? null : group;
+    selectedGraphCell = null;
+    renderGraph();
+
+}
+
+// Switch the chart view: absolute Voltage, Deviation-from-average, or Sorted.
+function setGraphView(v) {
+
+    graphView = v;
+
+    document.querySelectorAll(".gview-btn").forEach(b =>
+        b.classList.toggle("active", b.dataset.view === v));
+
+    renderGraph();
+
+}
+
+// Collect every graph CSS rule (.g-*) from the page stylesheets, so it can be
+// embedded into the exported SVG — otherwise the PNG loses all class-based
+// colours and label styling (the SVG-as-image can't see the external CSS).
+function collectGraphCss() {
+
+    let css = "";
+    const add = rules => {
+        for (const rule of rules) {
+            if (rule.selectorText && /\.g-|graph-svg/.test(rule.selectorText)) css += rule.cssText + "\n";
+            else if (rule.cssRules && rule.media) add(rule.cssRules); // inside @media
+        }
+    };
+    for (const sheet of document.styleSheets) {
+        try { if (sheet.cssRules) add(sheet.cssRules); } catch (e) { /* cross-origin */ }
+    }
+    return css;
+}
+
+// Save the current chart as a PNG image (2× for crispness), styled exactly as
+// on screen (colours + values embedded).
+function exportGraphPNG() {
+
+    const svg = document.querySelector("#graphBody svg");
+    if (!svg) return;
+
+    // Clone and embed the CSS + a dark background so the PNG matches the screen.
+    const clone = svg.cloneNode(true);
+    const styleEl = document.createElementNS("http://www.w3.org/2000/svg", "style");
+    styleEl.textContent = collectGraphCss();
+    clone.insertBefore(styleEl, clone.firstChild);
+    const bgRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    bgRect.setAttribute("x", "0"); bgRect.setAttribute("y", "0");
+    bgRect.setAttribute("width", "100%"); bgRect.setAttribute("height", "100%");
+    bgRect.setAttribute("fill", "#ffffff");
+    clone.insertBefore(bgRect, styleEl.nextSibling);
+
+    const xml = new XMLSerializer().serializeToString(clone);
+    const src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(xml)));
+
+    const img = new Image();
+
+    img.onload = () => {
+
+        const scale = 2;
+        const vb = svg.viewBox.baseVal;
+        const canvas = document.createElement("canvas");
+
+        canvas.width = (vb && vb.width ? vb.width : 820) * scale;
+        canvas.height = (vb && vb.height ? vb.height : 420) * scale;
+
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        canvas.toBlob(blob => {
+
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+
+            const pack = getPackNo();
+            a.href = url;
+            a.download = `CellGraph${pack ? "_Pack" + pack : ""}_${todayDateStr()}_${csvTimeStr().replace(/:/g, "-")}.png`;
+
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+
+            URL.revokeObjectURL(url);
+
+        });
+
+    };
+
+    img.src = src;
+
+}
+
+// Which colour bucket a cell falls in: only charging / discharging differ,
+// everything else (incl. highest/lowest) is "normal" (yellow).
+function graphCellGroup(i) {
+
+    if (cellBalancing[i]) return "dis";
+    if (cellCharging[i]) return "chg";
+    return "normal";
+
+}
+
+// Health bucket for a cell:
+//   critical → over/under-voltage fault (out of safe range)
+//   warning  → no fault, but out of balance (far from the pack average)
+//   normal   → in range and close to the average
+function graphCellSeverity(i) {
+
+    if (cellOVFault[i] || cellUVFault[i]) return "critical";
+
+    const vals = cellVoltages;
+    if (!vals.length) return "normal";
+
+    const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+
+    // >30 mV away from the average = noticeably out of balance.
+    return Math.abs(vals[i] - avg) > 0.03 ? "warning" : "normal";
+
+}
+
+// Whether a cell should be dimmed given the active "Show" filter. Charging /
+// discharging match the live state; normal / warning / critical match the
+// health bucket above.
+function graphIsDimmed(i) {
+
+    const f = graphHighlightGroup;
+    if (!f) return false;
+
+    if (f === "chg") return !cellCharging[i];
+    if (f === "dis") return !cellBalancing[i];
+
+    if (f === "critical") return graphCellSeverity(i) !== "critical";
+    if (f === "warning") return graphCellSeverity(i) !== "warning";
+    if (f === "normal") return graphCellSeverity(i) !== "normal";
+
+    // Back-compat with any older keys.
+    if (f === "ov") return !cellOVFault[i];
+    if (f === "uv") return !cellUVFault[i];
+
+    return false;
+
+}
+
+// Blend a hex colour toward white — used for the top of each bar's gradient.
+function graphLighten(hex, amt) {
+
+    const nn = parseInt(hex.slice(1), 16);
+
+    let r = (nn >> 16) & 255, g = (nn >> 8) & 255, b = nn & 255;
+
+    r = Math.round(r + (255 - r) * amt);
+    g = Math.round(g + (255 - g) * amt);
+    b = Math.round(b + (255 - b) * amt);
+
+    return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+
+}
+
+// SVG path for a bar rounded on the TOP corners only (flat on the baseline) —
+// the professional bar-chart look, instead of a fully-rounded rect.
+function graphTopRect(x, y, w, h, r) {
+
+    r = Math.max(0, Math.min(r, w / 2, h));
+
+    const x2 = x + w, yb = y + h;
+
+    return `M ${x.toFixed(1)} ${yb.toFixed(1)} ` +
+           `L ${x.toFixed(1)} ${(y + r).toFixed(1)} ` +
+           `Q ${x.toFixed(1)} ${y.toFixed(1)} ${(x + r).toFixed(1)} ${y.toFixed(1)} ` +
+           `L ${(x2 - r).toFixed(1)} ${y.toFixed(1)} ` +
+           `Q ${x2.toFixed(1)} ${y.toFixed(1)} ${x2.toFixed(1)} ${(y + r).toFixed(1)} ` +
+           `L ${x2.toFixed(1)} ${yb.toFixed(1)} Z`;
+
+}
+
+// Catmull-Rom → cubic-bézier smoothing. Takes [[x,y],…] and returns an SVG
+// path `d` that glides through every point instead of the hard kinks a
+// <polyline> makes. Tension ~0.2 keeps it gentle (no overshoot loops).
+function smoothD(points, tension) {
+    if (!points || !points.length) return "";
+    if (points.length < 3)
+        return "M " + points.map(p => `${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(" L ");
+
+    const t = (tension == null) ? 0.2 : tension;
+    let d = `M ${points[0][0].toFixed(1)} ${points[0][1].toFixed(1)}`;
+
+    for (let i = 0; i < points.length - 1; i++) {
+        const p0 = points[i - 1] || points[i];
+        const p1 = points[i];
+        const p2 = points[i + 1];
+        const p3 = points[i + 2] || p2;
+        const c1x = p1[0] + (p2[0] - p0[0]) * t;
+        const c1y = p1[1] + (p2[1] - p0[1]) * t;
+        const c2x = p2[0] - (p3[0] - p1[0]) * t;
+        const c2y = p2[1] - (p3[1] - p1[1]) * t;
+        d += ` C ${c1x.toFixed(1)} ${c1y.toFixed(1)}, ${c2x.toFixed(1)} ${c2y.toFixed(1)}, ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
+    }
+    return d;
+}
+
+// Smooth filled area: the smooth top edge, then closed down to a baseline.
+function smoothArea(points, baseY) {
+    if (!points || points.length < 2) return "";
+    return `${smoothD(points)} L ${points[points.length - 1][0].toFixed(1)} ${baseY.toFixed(1)}` +
+           ` L ${points[0][0].toFixed(1)} ${baseY.toFixed(1)} Z`;
+}
+
+// Returns a function that draws a thin dashed reference line at a voltage — NO
+// in-chart label (the limit VALUES are shown in the panel below the chart).
+function graphRefLine(lo, hi, yOf, padL, padR, W) {
+    return (val, col) => {
+        if (isNaN(val) || val < lo || val > hi) return "";
+        const y = yOf(val);
+        return `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" stroke="${col}" stroke-width="1.4" stroke-dasharray="6 4" opacity="0.65"/>`;
+    };
+}
+
+// Crosshair state for the single-cell comparison chart (set during render).
+let graphCrosshairData = null;
+
+// Move the pointer over the single-cell chart → a vertical crosshair snaps to
+// the nearest reading and a tooltip shows the time + idle/balancing voltages.
+function graphCrosshair(evt) {
+
+    const svg = document.querySelector("#graphBody svg");
+    const g = document.getElementById("graphCrosshairG");
+    if (!svg || !g || !graphCrosshairData) return;
+
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return;
+
+    const d = graphCrosshairData;
+    const pt = svg.createSVGPoint();
+    pt.x = (evt.touches && evt.touches[0]) ? evt.touches[0].clientX : evt.clientX;
+    pt.y = (evt.touches && evt.touches[0]) ? evt.touches[0].clientY : evt.clientY;
+
+    const loc = pt.matrixTransform(ctm.inverse());
+    const cx = Math.max(d.padL, Math.min(d.padL + d.plotW, loc.x));
+
+    const nearest = arr => {
+        if (!arr || !arr.length) return null;
+        let best = arr[0], bd = Math.abs(arr[0].x - cx);
+        for (const p of arr) { const dd = Math.abs(p.x - cx); if (dd < bd) { bd = dd; best = p; } }
+        return best;
+    };
+
+    const ip = nearest(d.idle), bp = nearest(d.bal);
+    const ref = (ip && bp) ? (Math.abs(ip.x - cx) <= Math.abs(bp.x - cx) ? ip : bp) : (ip || bp);
+    if (!ref) return;
+
+    const snapX = ref.x;
+    const secsAgo = Math.round((d.t0 + d.span - ref.t) / 1000);
+    const timeLabel = secsAgo <= 0 ? "now" : "-" + secsAgo + "s";
+
+    let html = `<line x1="${snapX.toFixed(1)}" y1="${d.padT}" x2="${snapX.toFixed(1)}" y2="${d.baseline}" stroke="#8896ac" stroke-width="1" stroke-dasharray="4 4"/>`;
+
+    if (ip) html += `<circle cx="${ip.x.toFixed(1)}" cy="${ip.y.toFixed(1)}" r="4.5" fill="${d.idleCol}" stroke="#ffffff" stroke-width="1.5"/>`;
+    if (bp) html += `<circle cx="${bp.x.toFixed(1)}" cy="${bp.y.toFixed(1)}" r="4.5" fill="${d.balCol}" stroke="#ffffff" stroke-width="1.5"/>`;
+
+    const parts = [timeLabel];
+    if (ip) parts.push(`idle ${ip.v.toFixed(3)}V`);
+    if (bp) parts.push(`bal ${bp.v.toFixed(3)}V`);
+    const label = parts.join("   ");
+    const boxW = Math.max(96, label.length * 6.6);
+    let bx = snapX - boxW / 2;
+    bx = Math.max(d.padL, Math.min(d.padL + d.plotW - boxW, bx));
+
+    html += `<rect x="${bx.toFixed(1)}" y="${(d.padT - 4).toFixed(1)}" width="${boxW.toFixed(1)}" height="22" rx="6" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>`;
+    html += `<text x="${(bx + boxW / 2).toFixed(1)}" y="${(d.padT + 11).toFixed(1)}" text-anchor="middle" style="fill:#111827;font-size:11px;font-weight:700">${label}</text>`;
+
+    g.innerHTML = html;
+}
+
+function graphCrosshairClear() {
+    const g = document.getElementById("graphCrosshairG");
+    if (g) g.innerHTML = "";
+}
+
+// Tap or hover a graph point → show its voltage in a small floating pill.
+// pointerdown covers both mouse and touch; the pill fades after a moment.
+let graphTipTimer = null;
+function graphPointTip(evt, text) {
+
+    if (evt && evt.stopPropagation) evt.stopPropagation();
+
+    let tip = document.getElementById("graphPointTip");
+    if (!tip) {
+        tip = document.createElement("div");
+        tip.id = "graphPointTip";
+        tip.className = "graph-point-tip";
+        document.body.appendChild(tip);
+    }
+
+    const px = evt.touches && evt.touches[0] ? evt.touches[0].clientX : evt.clientX;
+    const py = evt.touches && evt.touches[0] ? evt.touches[0].clientY : evt.clientY;
+
+    tip.textContent = text;
+    tip.style.left = px + "px";
+    tip.style.top = (py - 38) + "px";
+    tip.classList.add("show");
+
+    clearTimeout(graphTipTimer);
+    graphTipTimer = setTimeout(() => tip.classList.remove("show"), 2500);
+}
+
+// ======================================================================
+// ANALYSIS CHARTS — the six session-analysis plots picked from the Show
+// dropdown. Each returns an SVG-inner string for the given chart frame F.
+// ======================================================================
+function renderAnalysisChart(type, F) {
+
+    const { W, H, padL, padR, padT, plotW, plotH, baseline, n } = F;
+    const collecting = `<text x="${W / 2}" y="${H / 2}" class="g-axistitle" text-anchor="middle">Collecting data… keep the graph open for a few seconds</text>`;
+
+    // Shared helpers -----------------------------------------------------
+    const yAxis = (ylo, yhi, ty, dec, unit) => {
+        let s = "";
+        for (let k = 0; k <= 5; k++) {
+            const v = ylo + (yhi - ylo) * (k / 5);
+            const y = ty(v);
+            s += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" class="g-grid"/>`;
+            s += `<text x="${(padL - 8).toFixed(1)}" y="${(y + 4).toFixed(1)}" class="g-ylabel">${v.toFixed(dec)}${unit || ""}</text>`;
+        }
+        return s;
+    };
+    const xTime = (t0, span, tx) => {
+        let s = "";
+        for (let k = 0; k <= 4; k++) {
+            const tt = t0 + span * (k / 4);
+            const secsAgo = Math.round((t0 + span - tt) / 1000);
+            s += `<text x="${tx(tt).toFixed(1)}" y="${(baseline + 18).toFixed(1)}" class="g-xlabel">${secsAgo === 0 ? "now" : "-" + secsAgo + "s"}</text>`;
+        }
+        return s;
+    };
+    const axis = `<line x1="${padL}" y1="${baseline}" x2="${W - padR}" y2="${baseline}" class="g-axis"/>`;
+    const yTitle = txt => `<text x="16" y="${(padT + plotH / 2).toFixed(1)}" class="g-axistitle" transform="rotate(-90 16 ${(padT + plotH / 2).toFixed(1)})">${txt}</text>`;
+    const xTitle = txt => `<text x="${(padL + plotW / 2).toFixed(1)}" y="${H - 8}" class="g-axistitle">${txt}</text>`;
+    const line = (pts, col, dash) => `<path d="${smoothD(pts)}" fill="none" stroke="${col}" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"${dash ? ` stroke-dasharray="${dash}"` : ""} style="filter:drop-shadow(0 0 4px ${col}88)"/>`;
+
+    // ---- Time-series charts share this history setup ----
+    const hist = graphHistory.slice();
+
+    // =================================================================
+    if (type === "convergence") {
+
+        if (hist.length < 2) return collecting;
+        const t0 = hist[0].t, t1 = hist[hist.length - 1].t, span = Math.max(1, t1 - t0);
+        let ylo = Math.min(...hist.map(p => p.min)), yhi = Math.max(...hist.map(p => p.max));
+        const pad = Math.max(0.01, (yhi - ylo) * 0.15);
+        ylo = Math.floor((ylo - pad) * 100) / 100; yhi = Math.ceil((yhi + pad) * 100) / 100;
+        if (yhi - ylo < 0.02) yhi = ylo + 0.02;
+        const tx = t => padL + plotW * ((t - t0) / span);
+        const ty = v => padT + plotH * (1 - (v - ylo) / (yhi - ylo));
+
+        const topP = hist.map(p => [tx(p.t), ty(p.max)]);
+        const botP = hist.map(p => [tx(p.t), ty(p.min)]);
+        const band = `<path d="M ${topP.map(p => p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" L ")} L ${botP.slice().reverse().map(p => p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" L ")} Z" fill="url(#gareaGrad)"/>`;
+
+        const lines =
+            line(hist.map(p => [tx(p.t), ty(p.max)]), "#f59e0b") +
+            line(hist.map(p => [tx(p.t), ty(p.avg)]), "#3b82f6") +
+            line(hist.map(p => [tx(p.t), ty(p.min)]), "#22d3ee");
+
+        const legend =
+            `<g transform="translate(${padL + 6}, ${padT + 4})">` +
+            `<rect x="-4" y="-12" width="150" height="20" rx="6" fill="#eef2f8" opacity="0.8"/>` +
+            `<line x1="0" y1="-2" x2="14" y2="-2" style="stroke:#f59e0b;stroke-width:3"/><text x="18" y="2" class="g-legtext">Max</text>` +
+            `<line x1="52" y1="-2" x2="66" y2="-2" style="stroke:#3b82f6;stroke-width:3"/><text x="70" y="2" class="g-legtext">Avg</text>` +
+            `<line x1="100" y1="-2" x2="114" y2="-2" style="stroke:#22d3ee;stroke-width:3"/><text x="118" y="2" class="g-legtext">Min</text>` +
+            `</g>`;
+
+        return yAxis(ylo, yhi, ty, 3) + axis + band + lines + legend + xTime(t0, span, tx) + yTitle("Voltage (V)") + xTitle("Pack Max / Avg / Min over time — the band narrows as it balances");
+    }
+
+    // =================================================================
+    if (type === "spread") {
+
+        if (hist.length < 2) return collecting;
+        const t0 = hist[0].t, t1 = hist[hist.length - 1].t, span = Math.max(1, t1 - t0);
+        const target = (typeof BALANCED_DIFF_V === "number") ? BALANCED_DIFF_V : 0.01;
+        let yhi = Math.max(target, ...hist.map(p => p.max - p.min)) * 1000;
+        yhi = Math.ceil((yhi * 1.15) / 5) * 5 || 10;
+        const ty = mv => padT + plotH * (1 - mv / yhi);
+        const tx = t => padL + plotW * ((t - t0) / span);
+
+        let grid = "";
+        for (let k = 0; k <= 5; k++) {
+            const mv = yhi * (k / 5), y = ty(mv);
+            grid += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" class="g-grid"/>`;
+            grid += `<text x="${(padL - 8).toFixed(1)}" y="${(y + 4).toFixed(1)}" class="g-ylabel">${mv.toFixed(0)}</text>`;
+        }
+
+        const pts = hist.map(p => [tx(p.t), ty((p.max - p.min) * 1000)]);
+        const area = `<path d="${smoothArea(pts, baseline)}" fill="url(#gareaGrad)"/>`;
+        const curve = line(pts, "#a855f7");
+
+        const tY = ty(target * 1000);
+        const targetLine = `<line x1="${padL}" y1="${tY.toFixed(1)}" x2="${W - padR}" y2="${tY.toFixed(1)}" stroke="#34d399" stroke-width="1.5" stroke-dasharray="6 5"/>` +
+            `<text x="${(W - padR - 4).toFixed(1)}" y="${(tY - 5).toFixed(1)}" class="g-legtext" style="fill:#34d399" text-anchor="end">balanced target ${(target * 1000).toFixed(0)} mV</text>`;
+
+        return grid + axis + area + curve + targetLine + xTime(t0, span, tx) + yTitle("Spread — Max − Min (mV)") + xTitle("Imbalance closing toward the target");
+    }
+
+    // =================================================================
+    if (type === "gantt") {
+
+        if (hist.length < 2) return collecting;
+        const t0 = hist[0].t, t1 = hist[hist.length - 1].t, span = Math.max(1, t1 - t0);
+        const tx = t => padL + plotW * ((t - t0) / span);
+        const rowH = plotH / n;
+        const stateCol = s => s === 2 ? "#16a34a" : s === 1 ? "#ef4444" : "#33415580";
+
+        let rows = "";
+        for (let i = 0; i < n; i++) {
+            const y = padT + i * rowH;
+            rows += `<rect x="${padL}" y="${(y + 1).toFixed(1)}" width="${plotW}" height="${(rowH - 2).toFixed(1)}" fill="#eef2f8" opacity="0.5"/>`;
+            rows += `<text x="${(padL - 6).toFixed(1)}" y="${(y + rowH / 2 + 3).toFixed(1)}" class="g-ylabel" text-anchor="end">C${i + 1}</text>`;
+
+            // Run-length: one rect per contiguous same-state stretch.
+            let blkStart = 0;
+            for (let k = 1; k <= hist.length; k++) {
+                const prevS = hist[k - 1].states ? hist[k - 1].states[i] : 0;
+                const curS = k < hist.length && hist[k].states ? hist[k].states[i] : null;
+                if (k === hist.length || curS !== prevS) {
+                    if (prevS !== 0) {
+                        const x1 = tx(hist[blkStart].t), x2 = tx(hist[Math.min(k, hist.length - 1)].t);
+                        rows += `<rect x="${x1.toFixed(1)}" y="${(y + 2).toFixed(1)}" width="${Math.max(1.5, x2 - x1).toFixed(1)}" height="${(rowH - 4).toFixed(1)}" rx="2" fill="${stateCol(prevS)}"/>`;
+                    }
+                    blkStart = k;
+                }
+            }
+        }
+
+        const legend =
+            `<g transform="translate(${padL + 6}, ${padT - 2})">` +
+            `<rect x="-4" y="-12" width="220" height="18" rx="5" fill="#eef2f8" opacity="0.85"/>` +
+            `<rect x="0" y="-9" width="12" height="10" rx="2" fill="#ef4444"/><text x="16" y="-1" class="g-legtext">Discharging</text>` +
+            `<rect x="96" y="-9" width="12" height="10" rx="2" fill="#16a34a"/><text x="112" y="-1" class="g-legtext">Charging</text>` +
+            `</g>`;
+
+        return rows + legend + xTime(t0, span, tx) + xTitle("When each cell was balancing (per-cell timeline)");
+    }
+
+    // =================================================================
+    if (type === "energy") {
+
+        const chg = i => (cellChargeCount && cellChargeCount[i]) || 0;
+        const dis = i => (cellDischargeCount && cellDischargeCount[i]) || 0;
+        let maxCount = 1;
+        for (let i = 0; i < n; i++) maxCount = Math.max(maxCount, chg(i), dis(i));
+
+        const midY = padT + plotH / 2;
+        const half = plotH / 2 - 16;
+        const slotW = plotW / n;
+        const barW = Math.min(30, slotW * 0.5);
+
+        let grid = "";
+        grid += `<line x1="${padL}" y1="${midY.toFixed(1)}" x2="${W - padR}" y2="${midY.toFixed(1)}" class="g-axis"/>`;
+        for (let k = 1; k <= 2; k++) {
+            const yUp = midY - half * (k / 2), yDn = midY + half * (k / 2);
+            grid += `<line x1="${padL}" y1="${yUp.toFixed(1)}" x2="${W - padR}" y2="${yUp.toFixed(1)}" class="g-grid"/>`;
+            grid += `<line x1="${padL}" y1="${yDn.toFixed(1)}" x2="${W - padR}" y2="${yDn.toFixed(1)}" class="g-grid"/>`;
+            grid += `<text x="${(padL - 8).toFixed(1)}" y="${(yUp + 4).toFixed(1)}" class="g-ylabel">${Math.round(maxCount * k / 2)}</text>`;
+            grid += `<text x="${(padL - 8).toFixed(1)}" y="${(yDn + 4).toFixed(1)}" class="g-ylabel">${Math.round(maxCount * k / 2)}</text>`;
+        }
+
+        let bars = "";
+        for (let i = 0; i < n; i++) {
+            const cx = padL + slotW * (i + 0.5);
+            const hUp = (chg(i) / maxCount) * half;
+            const hDn = (dis(i) / maxCount) * half;
+            if (chg(i)) bars += `<rect x="${(cx - barW / 2).toFixed(1)}" y="${(midY - hUp).toFixed(1)}" width="${barW.toFixed(1)}" height="${hUp.toFixed(1)}" rx="3" fill="url(#ggrad-chg)" style="filter:drop-shadow(0 0 4px #16a34a66)"><title>Cell ${i + 1}: charged ${chg(i)}×</title></rect>`;
+            if (dis(i)) bars += `<rect x="${(cx - barW / 2).toFixed(1)}" y="${midY.toFixed(1)}" width="${barW.toFixed(1)}" height="${hDn.toFixed(1)}" rx="3" fill="url(#ggrad-dis)" style="filter:drop-shadow(0 0 4px #ef444466)"><title>Cell ${i + 1}: discharged ${dis(i)}×</title></rect>`;
+            bars += `<text x="${cx.toFixed(1)}" y="${(baseline + 18).toFixed(1)}" class="g-xlabel">${i + 1}</text>`;
+        }
+
+        const legend =
+            `<g transform="translate(${padL + 6}, ${padT + 4})">` +
+            `<rect x="-4" y="-12" width="240" height="20" rx="6" fill="#eef2f8" opacity="0.8"/>` +
+            `<rect x="0" y="-10" width="12" height="10" rx="2" fill="#16a34a"/><text x="16" y="-1" class="g-legtext">▲ Charged (receiver)</text>` +
+            `<rect x="128" y="-10" width="12" height="10" rx="2" fill="#ef4444"/><text x="144" y="-1" class="g-legtext">▼ Discharged (donor)</text>` +
+            `</g>`;
+
+        return grid + bars + legend + yTitle("Times balanced (count)") + xTitle("Energy moved per cell — donors vs receivers");
+    }
+
+    // =================================================================
+    if (type === "deviation") {
+
+        const vals = cellVoltages.slice();
+        if (!vals.length) return collecting;
+        const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+        const order = vals.map((_, i) => i).sort((a, b) => Math.abs(vals[b] - avg) - Math.abs(vals[a] - avg));
+        let maxAbs = 0.005;
+        for (let i = 0; i < n; i++) maxAbs = Math.max(maxAbs, Math.abs(vals[i] - avg));
+
+        const midY = padT + plotH / 2;
+        const scale = (plotH / 2 - 16) / maxAbs;
+        const slotW = plotW / n;
+        const barW = Math.min(30, slotW * 0.55);
+
+        let grid = `<line x1="${padL}" y1="${midY.toFixed(1)}" x2="${W - padR}" y2="${midY.toFixed(1)}" class="g-axis"/>`;
+        grid += `<text x="${(padL + 4).toFixed(1)}" y="${(midY - 5).toFixed(1)}" class="g-legtext" style="fill:#93a1b5">Pack average (0 mV)</text>`;
+        for (let k = 1; k <= 2; k++) {
+            const dev = maxAbs * (k / 2) * 1000;
+            const yU = midY - (dev / 1000) * scale, yD = midY + (dev / 1000) * scale;
+            grid += `<line x1="${padL}" y1="${yU.toFixed(1)}" x2="${W - padR}" y2="${yU.toFixed(1)}" class="g-grid"/><text x="${(padL - 8).toFixed(1)}" y="${(yU + 4).toFixed(1)}" class="g-ylabel">+${dev.toFixed(0)}</text>`;
+            grid += `<line x1="${padL}" y1="${yD.toFixed(1)}" x2="${W - padR}" y2="${yD.toFixed(1)}" class="g-grid"/><text x="${(padL - 8).toFixed(1)}" y="${(yD + 4).toFixed(1)}" class="g-ylabel">-${dev.toFixed(0)}</text>`;
+        }
+
+        let bars = "";
+        order.forEach((i, slot) => {
+            const cx = padL + slotW * (slot + 0.5);
+            const dev = vals[i] - avg;
+            const h = Math.abs(dev) * scale;
+            const y = dev >= 0 ? midY - h : midY;
+            const col = GRAPH_GROUP_COLOR[graphCellGroup(i)];
+            bars += `<rect x="${(cx - barW / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(1, h).toFixed(1)}" rx="3" fill="${col}" style="filter:drop-shadow(0 0 4px ${col}66)"><title>Cell ${i + 1}: ${dev >= 0 ? "+" : ""}${(dev * 1000).toFixed(0)} mV</title></rect>`;
+            bars += `<text x="${cx.toFixed(1)}" y="${(baseline + 18).toFixed(1)}" class="g-xlabel">${i + 1}</text>`;
+        });
+
+        return grid + bars + yTitle("Deviation from average (mV)") + xTitle("Each cell vs the pack average — biggest outliers first");
+    }
+
+    // =================================================================
+    if (type === "histogram") {
+
+        const vals = cellVoltages.slice().filter(v => v > 0);
+        if (vals.length < 2) return collecting;
+        let lo = Math.min(...vals), hi = Math.max(...vals);
+        if (hi - lo < 0.001) { lo -= 0.005; hi += 0.005; }
+        const bins = Math.min(10, Math.max(5, Math.round(Math.sqrt(n))));
+        const binW = (hi - lo) / bins;
+        const counts = new Array(bins).fill(0);
+        vals.forEach(v => { let b = Math.floor((v - lo) / binW); if (b < 0) b = 0; if (b >= bins) b = bins - 1; counts[b]++; });
+        const maxC = Math.max(1, ...counts);
+
+        const slotW = plotW / bins;
+        const barW = slotW * 0.82;
+
+        let grid = "";
+        for (let k = 0; k <= maxC; k++) {
+            const y = baseline - (k / maxC) * plotH;
+            grid += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" class="g-grid"/>`;
+            grid += `<text x="${(padL - 8).toFixed(1)}" y="${(y + 4).toFixed(1)}" class="g-ylabel">${k}</text>`;
+        }
+
+        let bars = "";
+        for (let b = 0; b < bins; b++) {
+            const x = padL + slotW * b + (slotW - barW) / 2;
+            const h = (counts[b] / maxC) * plotH;
+            bars += `<rect x="${x.toFixed(1)}" y="${(baseline - h).toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(0, h).toFixed(1)}" rx="4" fill="url(#gareaGrad2)" stroke="#22d3ee" stroke-width="1" style="filter:drop-shadow(0 0 5px #22d3ee55)"><title>${(lo + b * binW).toFixed(3)}–${(lo + (b + 1) * binW).toFixed(3)} V: ${counts[b]} cells</title></rect>`;
+            if (b % 2 === 0 || bins <= 6)
+                bars += `<text x="${(padL + slotW * (b + 0.5)).toFixed(1)}" y="${(baseline + 18).toFixed(1)}" class="g-xlabel">${(lo + (b + 0.5) * binW).toFixed(3)}</text>`;
+        }
+
+        const gdef = `<linearGradient id="gareaGrad2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#22d3ee" stop-opacity="0.85"/><stop offset="100%" stop-color="#3b82f6" stop-opacity="0.45"/></linearGradient>`;
+
+        return gdef + `<line x1="${padL}" y1="${baseline}" x2="${W - padR}" y2="${baseline}" class="g-axis"/>` + grid + bars + yTitle("Number of cells") + xTitle("Voltage distribution — a tight peak means a balanced pack");
+    }
+
+    // =================================================================
+    if (type === "multiples") {
+
+        // Small multiples — a grid of one mini line-chart PER cell, so every
+        // cell is shown separately (its own panel) at the same time.
+        if (hist.length < 2) return collecting;
+        const t0 = hist[0].t, t1 = hist[hist.length - 1].t, span = Math.max(1, t1 - t0);
+
+        const cols = Math.ceil(Math.sqrt(n));
+        const rows = Math.ceil(n / cols);
+        const gx = 8, gy = 8;
+        const x0 = 34, y0 = 14, x1 = W - 12, y1 = H - 10;
+        const cw = (x1 - x0 - gx * (cols - 1)) / cols;
+        const ch = (y1 - y0 - gy * (rows - 1)) / rows;
+
+        let out = "";
+        for (let i = 0; i < n; i++) {
+            const r = Math.floor(i / cols), c = i % cols;
+            const bx = x0 + c * (cw + gx), by = y0 + r * (ch + gy);
+            const col = GRAPH_GROUP_COLOR[graphCellGroup(i)];
+
+            out += `<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${cw.toFixed(1)}" height="${ch.toFixed(1)}" rx="6" fill="#eef2f8" opacity="0.55" stroke="#e2e8f0" stroke-width="1"/>`;
+
+            const pp = hist.filter(p => p.cells && p.cells[i] !== undefined);
+            if (pp.length >= 2) {
+                let lo = Math.min(...pp.map(p => p.cells[i])), hi = Math.max(...pp.map(p => p.cells[i]));
+                const pad = Math.max(0.005, (hi - lo) * 0.2);
+                lo -= pad; hi += pad; if (hi - lo < 0.01) hi = lo + 0.01;
+                const top = by + 20, bot = by + ch - 6, left = bx + 6, right = bx + cw - 6;
+                const mx = t => left + (right - left) * ((t - t0) / span);
+                const my = v => top + (bot - top) * (1 - (v - lo) / (hi - lo));
+                const line = pp.map(p => [mx(p.t), my(p.cells[i])]);
+                out += `<path d="${smoothD(line)}" fill="none" stroke="${col}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" style="filter:drop-shadow(0 0 2px ${col}88)"/>`;
+                const last = line[line.length - 1];
+                out += `<circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.4" fill="${col}"/>`;
+            }
+
+            const cur = (cellVoltages[i] !== undefined) ? cellVoltages[i] : 0;
+            out += `<text x="${(bx + 6).toFixed(1)}" y="${(by + 13).toFixed(1)}" style="fill:${col};font-size:11px;font-weight:800">C${i + 1}</text>`;
+            out += `<text x="${(bx + cw - 6).toFixed(1)}" y="${(by + 13).toFixed(1)}" text-anchor="end" style="fill:#111827;font-size:10.5px;font-weight:700">${cur.toFixed(3)}</text>`;
+        }
+
+        return out;
+    }
+
+    return collecting;
+}
+
+// Compact inline voltage-trend chart shown below the cells on the dashboard —
+// pack Max / Avg / Min over time. Drawn every tick from graphHistory.
+function renderInlineTrend() {
+
+    const el = document.getElementById("graphInline");
+    if (!el) return;
+
+    const W = 900, H = 200, padL = 46, padR = 16, padT = 14, padB = 26;
+    const plotW = W - padL - padR, plotH = H - padT - padB, baseline = padT + plotH;
+
+    const hist = graphHistory.slice();
+    if (hist.length < 2) {
+        el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" class="graph-svg" preserveAspectRatio="none"><text x="${W / 2}" y="${H / 2}" text-anchor="middle" style="fill:#94a3b8;font-size:13px">Collecting trend… start balancing or wait a few seconds</text></svg>`;
+        return;
+    }
+
+    const t0 = hist[0].t, t1 = hist[hist.length - 1].t, span = Math.max(1, t1 - t0);
+    let ylo = Math.min(...hist.map(p => p.min)), yhi = Math.max(...hist.map(p => p.max));
+    const pad = Math.max(0.01, (yhi - ylo) * 0.15);
+    ylo = Math.floor((ylo - pad) * 100) / 100; yhi = Math.ceil((yhi + pad) * 100) / 100;
+    if (yhi - ylo < 0.02) yhi = ylo + 0.02;
+
+    const tx = t => padL + plotW * ((t - t0) / span);
+    const ty = v => padT + plotH * (1 - (v - ylo) / (yhi - ylo));
+
+    let grid = "";
+    for (let k = 0; k <= 4; k++) {
+        const v = ylo + (yhi - ylo) * (k / 4), y = ty(v);
+        grid += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" stroke="#eef2f7" stroke-width="1"/>`;
+        grid += `<text x="${padL - 8}" y="${(y + 4).toFixed(1)}" text-anchor="end" style="fill:#94a3b8;font-size:10px">${v.toFixed(2)}</text>`;
+    }
+    let xlab = "";
+    for (let k = 0; k <= 4; k++) {
+        const tt = t0 + span * (k / 4), secs = Math.round((t1 - tt) / 1000);
+        xlab += `<text x="${tx(tt).toFixed(1)}" y="${(baseline + 16).toFixed(1)}" text-anchor="middle" style="fill:#94a3b8;font-size:10px">${secs === 0 ? "now" : "-" + secs + "s"}</text>`;
+    }
+
+    const line = (key, col) => `<path d="${smoothD(hist.map(p => [tx(p.t), ty(p[key])]))}" fill="none" stroke="${col}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    const lines = line("max", "#ef4444") + line("avg", "#2563eb") + line("min", "#16a34a");
+
+    const legend =
+        `<g transform="translate(${padL + 4},${padT + 2})">` +
+        `<circle cx="4" cy="0" r="4" fill="#ef4444"/><text x="12" y="4" style="fill:#475569;font-size:11px">Max</text>` +
+        `<circle cx="54" cy="0" r="4" fill="#2563eb"/><text x="62" y="4" style="fill:#475569;font-size:11px">Avg</text>` +
+        `<circle cx="102" cy="0" r="4" fill="#16a34a"/><text x="110" y="4" style="fill:#475569;font-size:11px">Min</text>` +
+        `</g>`;
+
+    const axis = `<line x1="${padL}" y1="${baseline}" x2="${W - padR}" y2="${baseline}" stroke="#cbd5e1" stroke-width="1.2"/>`;
+
+    el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" class="graph-svg" preserveAspectRatio="none">${grid}${axis}${lines}${legend}${xlab}</svg>`;
+}
+
+function renderGraph() {
+
+    if (!graphOpen) return;
+
+    const body = document.getElementById("graphBody");
+    const summaryEl = document.getElementById("graphSummary");
+    const detailEl = document.getElementById("graphDetail");
+
+    if (!body) return;
+
+    const n = CELL_COUNT;
+    const values = cellVoltages.slice();
+
+    // A selection made before the pack was shrunk can point past the end now —
+    // drop it so the detail panel never reads an out-of-range cell.
+    if (selectedGraphCell !== null && selectedGraphCell >= n) selectedGraphCell = null;
+
+    if (!values.length || Math.max(...values) <= 0) {
+
+        body.innerHTML = `<p class="graph-empty">No cell data yet — waiting for readings…</p>`;
+        if (summaryEl) summaryEl.innerHTML = "";
+        if (detailEl) detailEl.innerHTML = `<span class="gd-hint">No cell data yet.</span>`;
+
+        return;
+
+    }
+
+    const maxV = Math.max(...values);
+    const minV = Math.min(...values);
+    const maxCell = values.indexOf(maxV);
+    const minCell = values.indexOf(minV);
+    const avgV = values.reduce((a, b) => a + b, 0) / n;
+
+    // Bucket every cell by colour group + collect the fault sets.
+    const groups = { normal: [], dis: [], chg: [] };
+    const ovCells = [], uvCells = [], critCells = [];
+
+    for (let i = 0; i < n; i++) {
+        groups[graphCellGroup(i)].push(i + 1);
+        if (cellOVFault[i]) ovCells.push(i + 1);
+        if (cellUVFault[i]) uvCells.push(i + 1);
+        if (cellOVFault[i] || cellUVFault[i]) critCells.push(i + 1);
+    }
+
+    // ---- Selectable state / fault chips — click one to show only those cells ----
+    if (summaryEl) {
+
+        const cellStr = cells => cells.length
+            ? (cells.length <= 6 ? cells.join(", ") : cells.slice(0, 6).join(", ") + "…")
+            : "—";
+
+        const chip = (key, name, color, cells) =>
+            `<button class="gsum-chip${graphHighlightGroup === key ? " active" : ""}" style="--gc:${color}" onclick="toggleGraphGroup('${key}')" title="Show only ${name} cells">
+                <span class="gsum-dot"></span>
+                <span class="gsum-name">${name}</span>
+                <span class="gsum-count">${cells.length}</span>
+                <span class="gsum-cells">${cellStr(cells)}</span>
+            </button>`;
+
+        let html =
+            chip("dis", "Discharging", GRAPH_GROUP_COLOR.dis, groups.dis) +
+            chip("chg", "Charging", GRAPH_GROUP_COLOR.chg, groups.chg) +
+            chip("normal", "Normal", GRAPH_GROUP_COLOR.normal, groups.normal);
+
+        // Fault filters — only shown when there are such cells.
+        if (ovCells.length) html += chip("ov", "⚠ Over-Voltage", "#dc2626", ovCells);
+        if (uvCells.length) html += chip("uv", "⚠ Under-Voltage", "#d97706", uvCells);
+        if (critCells.length) html += chip("critical", "⛔ Critical", "#b91c1c", critCells);
+
+        summaryEl.innerHTML = html;
+
+    }
+
+    // ---- Key-stat cards + subtitle ----
+    const spread = maxV - minV;
+
+    const subtitleEl = document.getElementById("graphSubtitle");
+    if (subtitleEl) {
+        const pack = getPackNo();
+        const now = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+        subtitleEl.textContent =
+            `${n} cells · ${simulationEnabled ? "Simulated" : "Real-device"} data` +
+            (pack ? ` · Pack ${pack}` : "") + ` · updated ${now}`;
+    }
+
+    // Pack health badge in the header.
+    const badgeEl = document.getElementById("graphHealth");
+    if (badgeEl) {
+        const h = packHealth();
+        badgeEl.className = "graph-health " + h.cls;
+        badgeEl.textContent = h.label;
+    }
+
+    // Keep the "Show" dropdown in sync with the current selection / filter.
+    populateCellSelect();
+    const cellSel = document.getElementById("graphCellSelect");
+    if (cellSel) cellSel.value = currentShowValue();
+
+    // Quick cell navigation strip (single-cell view only).
+    renderGraphCellNav();
+
+    // Limit / threshold panel shown OUTSIDE the chart.
+    const limEl = document.getElementById("graphLimits");
+    if (limEl) {
+        const ov = parseFloat(document.getElementById("ovProtection")?.value);
+        const uv = parseFloat(document.getElementById("uvProtection")?.value);
+        const startv = parseFloat(document.getElementById("startVoltage")?.value);
+        const val = v => isNaN(v) ? "—" : v.toFixed(3) + " V";
+        const chip = (col, name, v) =>
+            `<span class="glim-chip"><span class="glim-dot" style="background:${col}"></span>` +
+            `<span class="glim-name">${name}</span><span class="glim-val">${v}</span></span>`;
+
+        limEl.innerHTML =
+            chip("#f87171", "OV limit", val(ov)) +
+            chip("#fbbf24", "UV limit", val(uv)) +
+            chip("#60a5fa", "Pack avg", val(avgV)) +
+            chip("#cbd5e1", "Start V", val(startv)) +
+            chip("#f59e0b", "Spread", val(maxV - minV));
+    }
+
+    // Plain-language explanation of the current view, so it's understandable
+    // without prior knowledge.
+    const helpEl = document.getElementById("graphHelp");
+    if (helpEl) {
+        if (graphChart) {
+            const chartHelp = {
+                multiples: "🔲 Every cell shown separately — a grid of 16 mini-charts, one per cell, each plotting that cell's voltage over the session (line colour = state). Scan them all at once; the number top-right is the live voltage.",
+                convergence: "📉 Pack Max, Average and Min voltage over time. The shaded band between Max and Min narrows as the cells come together — a thin band means balanced.",
+                spread: "📈 The imbalance (Max − Min) in mV over time, heading down toward the balanced target (dashed line). How fast it drops shows how well balancing is working.",
+                gantt: "📊 A timeline per cell: coloured blocks show when each cell was discharging (red) or charging (green). Blank = idle. Reveals which cells did the work and the duty-cycle rhythm.",
+                energy: "⚡ How many times each cell charged (green, up = receiver) vs discharged (yellow, down = donor) this session. Tall yellow bars are the pack's high cells; tall green bars are the low ones.",
+                deviation: "🎯 Each cell's distance from the pack average (mV), biggest outliers first. Bars above the line are high (will discharge); below are low (will charge). Bar colour = state.",
+                histogram: "📶 How the 16 cells are distributed across voltage. A tight, tall peak = a well-balanced pack; a wide spread = cells still out of balance."
+            };
+            helpEl.textContent = chartHelp[graphChart] || "";
+        } else if (selectedGraphCell !== null) {
+            helpEl.textContent = `📈 Cell ${selectedGraphCell + 1}: voltage over time as one trend line — dotted grey while the cell was resting (idle), solid coloured with a filled area while it was being balanced. The dashed marker shows where balancing started; each dot is one reading.`;
+        } else if (graphHighlightGroup === "chg") {
+            helpEl.textContent = "⚡ Only the charging cells, as bars — each bar is one cell's current voltage (green). The avg / OV / UV level lines show where the limits sit. Tap a bar to open that cell.";
+        } else if (graphHighlightGroup === "dis") {
+            helpEl.textContent = "🔻 Only the discharging cells, as bars — each bar is one cell's current voltage (yellow). The avg / OV / UV level lines show where the limits sit. Tap a bar to open that cell.";
+        } else if (graphHighlightGroup === "warning") {
+            helpEl.textContent = "⚠ Only the WARNING cells (out of balance — more than 30 mV from the pack average). Bar height = voltage; the level lines (avg / start / OV / UV) show where each threshold sits.";
+        } else if (graphHighlightGroup === "critical") {
+            helpEl.textContent = "⛔ Only the CRITICAL cells (in an over- or under-voltage fault). Bar height = voltage; the OV / UV level lines show the limits they crossed.";
+        } else if (graphHighlightGroup === "normal") {
+            helpEl.textContent = "🟡 All 16 cells as bars. Bar colour shows state (green charging, yellow discharging, pink normal); the level lines mark avg / start / OV / UV.";
+        } else {
+            const help = {
+                voltage: "📊 Each bar is one cell's voltage. Taller bar = higher voltage; bar colour shows its state. Bars standing apart from the group are the ones out of balance.",
+                sorted: "📉 The same bars lined up highest → lowest, so the strongest and weakest cells are easy to spot.",
+                deviation: "🎯 How far each cell is from the pack AVERAGE (in mV). Dots ABOVE the middle line are higher than average (will discharge); dots BELOW are lower (will charge). A balanced pack has every dot hugging the line."
+            };
+            helpEl.textContent = help[graphView] || "";
+        }
+    }
+
+    const statsEl = document.getElementById("graphStats");
+    if (statsEl) {
+
+        const card = (label, value, sub, cls) =>
+            `<div class="gstat ${cls}">
+                <span class="gstat-label">${label}</span>
+                <span class="gstat-value">${value}</span>
+                <span class="gstat-sub">${sub}</span>
+            </div>`;
+
+        statsEl.innerHTML =
+            card("Average", avgV.toFixed(3) + " V", "pack mean", "gs-avg") +
+            card("Highest", maxV.toFixed(3) + " V", "Cell " + (maxCell + 1), "gs-high") +
+            card("Lowest", minV.toFixed(3) + " V", "Cell " + (minCell + 1), "gs-low") +
+            card("Spread", spread.toFixed(3) + " V", "max − min", "gs-spread");
+
+    }
+
+    // ---- The chart ----
+    const W = 820, H = 420;
+    const padL = 66, padR = 205, padT = 34, padB = 60;
+    const plotW = W - padL - padR;
+    const plotH = H - padT - padB;
+    const baseline = padT + plotH;
+    const barW = Math.max(5, (plotW / n) * 0.6);
+    const rTop = Math.min(6, barW / 2);
+
+    // Draw order: "sorted" = high → low; "deviation" = biggest outliers first
+    // (by absolute distance from the average); the others keep 1..n.
+    let order = Array.from({ length: n }, (_, k) => k);
+    if (graphView === "sorted") order = order.slice().sort((a, b) => values[b] - values[a]);
+    else if (graphView === "deviation") order = order.slice().sort((a, b) => Math.abs(values[b] - avgV) - Math.abs(values[a] - avgV));
+
+    const slotOf = new Array(n);
+    order.forEach((cellIdx, slot) => { slotOf[cellIdx] = slot; });
+    const xSlot = slot => padL + (plotW / n) * (slot + 0.5);
+
+    // Shared gradients, shadow, and the flow arrowhead.
+    const defs =
+        `<defs>` +
+        // Bar gradients: the state colours PLUS over-voltage (red) and
+        // under-voltage (amber), so a faulted cell's bar changes colour.
+        Object.entries({ ...GRAPH_GROUP_COLOR, ov: "#ef4444", uv: "#f59e0b", lvnormal: "#22c55e", lvhigh: "#f5c518", lvveryhigh: "#ef4444", lvlow: "#3b82f6" }).map(([gk, c]) => {
+            return `<linearGradient id="ggrad-${gk}" x1="0" y1="0" x2="0" y2="1">` +
+                   `<stop offset="0%" stop-color="${graphLighten(c, 0.5)}"/>` +
+                   `<stop offset="55%" stop-color="${c}"/>` +
+                   `<stop offset="100%" stop-color="${graphLighten(c, -0.15) || c}"/></linearGradient>`;
+        }).join("") +
+        `<filter id="gbarShadow" x="-40%" y="-15%" width="180%" height="135%"><feDropShadow dx="0" dy="2" stdDeviation="2.2" flood-color="#0f172a" flood-opacity="0.16"/></filter>` +
+        `<filter id="gGlow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="3.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>` +
+        `<marker id="gflow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7c3aed"/></marker>` +
+        `<linearGradient id="gareaGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#2563eb" stop-opacity="0.30"/><stop offset="100%" stop-color="#2563eb" stop-opacity="0.02"/></linearGradient>` +
+        `</defs>`;
+
+    const cellLabels = () => {
+        let s = "";
+        for (let slot = 0; slot < n; slot++) {
+            const i = order[slot];
+            const isSel = selectedGraphCell === i;
+            s += `<text x="${xSlot(slot).toFixed(1)}" y="${(baseline + 18).toFixed(1)}" class="g-xlabel${isSel ? " g-xlabel-sel" : ""}">${i + 1}</text>`;
+        }
+        return s;
+    };
+
+    let svgInner = "";
+
+    if (graphChart) {
+
+        // --- One of the six session-analysis charts ---
+        svgInner = renderAnalysisChart(graphChart, { W, H, padL, padR, padT, padB, plotW, plotH, baseline, n });
+
+    }
+
+    else if (selectedGraphCell !== null) {
+
+        // --- Single cell over time: idle voltage vs balancing voltage ---
+        const ci = selectedGraphCell;
+        const hist = graphHistory.slice().filter(p => p.cells && p.cells[ci] !== undefined);
+
+        if (hist.length < 2) {
+
+            svgInner = `<text x="${W / 2}" y="${H / 2}" class="g-axistitle" text-anchor="middle">Collecting Cell ${ci + 1} data… keep the graph open for a few seconds</text>`;
+
+        } else {
+
+            const t0 = hist[0].t, t1 = hist[hist.length - 1].t;
+            const span = Math.max(1, t1 - t0);
+
+            // Shared voltage scale from ALL of this cell's readings, so Idle
+            // and Balancing sit on the SAME axis and can be compared directly.
+            const cvals = hist.map(p => p.cells[ci]);
+            let ylo = Math.min(...cvals), yhi = Math.max(...cvals);
+            const padYv = Math.max(0.01, (yhi - ylo) * 0.2);
+            ylo = Math.floor((ylo - padYv) * 100) / 100;
+            yhi = Math.ceil((yhi + padYv) * 100) / 100;
+            if (yhi - ylo < 0.02) yhi = ylo + 0.02;
+
+            const tx = t => padL + plotW * ((t - t0) / span);
+            const ty = v => padT + plotH * (1 - (v - ylo) / (yhi - ylo));
+
+            let grid = "";
+            for (let k = 0; k <= 5; k++) {
+                const v = ylo + (yhi - ylo) * (k / 5);
+                const y = ty(v);
+                grid += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" class="g-grid"/>`;
+                grid += `<text x="${(padL - 8).toFixed(1)}" y="${(y + 4).toFixed(1)}" class="g-ylabel">${v.toFixed(3)}</text>`;
+            }
+
+            let xlab = "";
+            for (let k = 0; k <= 4; k++) {
+                const tt = t0 + span * (k / 4);
+                const secsAgo = Math.round((t1 - tt) / 1000);
+                xlab += `<text x="${tx(tt).toFixed(1)}" y="${(baseline + 18).toFixed(1)}" class="g-xlabel">${secsAgo === 0 ? "now" : "-" + secsAgo + "s"}</text>`;
+            }
+
+            // Voltage samples tagged with the cell's state (0 idle, 1 dis, 2 chg).
+            const pts = hist.map(p => ({ t: p.t, v: p.cells[ci], s: p.states ? p.states[ci] : 0 }));
+            const IDLE_COL = "#94a3b8";
+            const chgN = pts.filter(p => p.s === 2).length;
+            const disN = pts.filter(p => p.s === 1).length;
+            const BAL_COL = chgN > disN ? "#16a34a" : "#ef4444";
+
+            // ONE continuous trend line, split into contiguous runs by state:
+            // idle = dotted grey, balancing = solid coloured line + area fill.
+            // Each new run starts at the previous point so the line never breaks.
+            const P = pts.map(p => ({ x: tx(p.t), y: ty(p.v), c: p.s === 0 ? 0 : 1, v: p.v, t: p.t }));
+            const runs = [];
+            for (let k = 0; k < P.length; k++) {
+                const p = P[k];
+                const last = runs[runs.length - 1];
+                if (!last || last.c !== p.c) {
+                    const run = { c: p.c, pts: [] };
+                    if (k > 0) run.pts.push(P[k - 1]);   // bridge from the previous reading
+                    run.pts.push(p);
+                    runs.push(run);
+                } else {
+                    last.pts.push(p);
+                }
+            }
+
+            let series = "";
+            runs.forEach((run, ri) => {
+                const xy = run.pts.map(p => [p.x, p.y]);
+                if (xy.length < 2) return;
+                if (run.c === 1) {
+                    const gid = `gbal-${ri}`;
+                    series += `<linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${BAL_COL}" stop-opacity="0.30"/><stop offset="100%" stop-color="${BAL_COL}" stop-opacity="0.02"/></linearGradient>`;
+                    series += `<path d="${smoothArea(xy, baseline)}" fill="url(#${gid})"/>`;
+                    series += `<path d="${smoothD(xy)}" fill="none" stroke="${BAL_COL}" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" class="${graphAnimate ? "g-anim-draw" : ""}"/>`;
+                } else {
+                    series += `<path d="${smoothD(xy)}" fill="none" stroke="${IDLE_COL}" stroke-width="2.4" stroke-dasharray="2 5" stroke-linejoin="round" stroke-linecap="round"/>`;
+                }
+            });
+
+            // Small dot at every reading — white core, ring coloured by state.
+            let dots = "";
+            P.forEach(p => {
+                const col = p.c === 1 ? BAL_COL : IDLE_COL;
+                dots += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="2.6" fill="#ffffff" stroke="${col}" stroke-width="1.6"/>`;
+            });
+
+            // "Balancing Started" marker at the first idle → balancing transition.
+            // Label sits BELOW the legend row (which lives near padT) and flips to
+            // the left of the line when the marker is close to the right edge so it
+            // never runs off the plot or collides with the legend.
+            let marker = "";
+            const firstBal = P.findIndex((p, k) => p.c === 1 && (k === 0 || P[k - 1].c === 0));
+            if (firstBal > 0) {
+                const mx = P[firstBal].x;
+                const lblY = padT + 40;
+                const flip = mx > padL + plotW * 0.6;
+                const anchor = flip ? "end" : "start";
+                const tx0 = flip ? mx - 8 : mx + 8;
+                const label = "Balancing Started";
+                const boxW = 118, boxH = 18;
+                const boxX = flip ? tx0 - boxW : tx0;
+                marker = `<line x1="${mx.toFixed(1)}" y1="${(padT + 26).toFixed(1)}" x2="${mx.toFixed(1)}" y2="${baseline}" stroke="${BAL_COL}" stroke-width="1.2" stroke-dasharray="4 4" opacity="0.65"/>` +
+                    `<rect x="${boxX.toFixed(1)}" y="${(lblY - 13).toFixed(1)}" width="${boxW}" height="${boxH}" rx="5" fill="#ffffff" opacity="0.9"/>` +
+                    `<text x="${tx0.toFixed(1)}" y="${lblY.toFixed(1)}" text-anchor="${anchor}" class="g-legtext" style="fill:${BAL_COL}">${label}</text>`;
+            }
+
+            // Crosshair still maps cursor-x → nearest idle / balancing reading.
+            const catPts = pred => pts.filter(p => pred(p.s)).map(p => ({ x: tx(p.t), y: ty(p.v), v: p.v, t: p.t }));
+            const idleArr = catPts(s => s === 0);
+            const balArr = catPts(s => s !== 0);
+            graphCrosshairData = {
+                padL, plotW, padT, baseline,
+                idle: idleArr, bal: balArr,
+                idleCol: IDLE_COL, balCol: BAL_COL, t0, span
+            };
+
+            // Transparent overlay captures pointer moves; the crosshair group
+            // (drawn on top, non-interactive) shows the vertical line + tooltip.
+            const hoverLayer =
+                `<rect x="${padL}" y="${padT}" width="${plotW}" height="${plotH}" fill="transparent" style="cursor:crosshair" onpointermove="graphCrosshair(event)" onpointerdown="graphCrosshair(event)" onpointerleave="graphCrosshairClear()"/>` +
+                `<g id="graphCrosshairG" style="pointer-events:none"></g>`;
+
+            // Glowing, pulsing "live" dot + value pill on the latest reading.
+            const lp = pts[pts.length - 1];
+            const lx = tx(lp.t), ly = ty(lp.v), lc = lp.s === 0 ? IDLE_COL : BAL_COL;
+            const liveDot =
+                `<circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="6" fill="none" stroke="${lc}" stroke-width="2" class="g-livepulse"/>` +
+                `<circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="5" fill="${lc}" class="g-livedot"/>`;
+            // Value pill sits to the LEFT of the live dot (inside the plot) so it
+            // never collides with the right-hand legend.
+            const endLbl =
+                `<g transform="translate(${lx.toFixed(1)}, ${ly.toFixed(1)})">` +
+                `<rect x="-74" y="-12" width="62" height="24" rx="7" fill="${lc}"/>` +
+                `<text x="-43" y="4" text-anchor="middle" style="fill:#fff;font-weight:800;font-size:12px">${lp.v.toFixed(3)} V</text>` +
+                `</g>`;
+
+            // Legend on the RIGHT side of the graph, stacked line by line with
+            // clear spacing between the two entries (vertically centred).
+            const legX = W - padR + 34;              // clear horizontal gap from the plot
+            const legGap = 56;                       // vertical space between entries
+            const legY = padT + plotH / 2 - legGap / 2;
+            const legend =
+                `<g transform="translate(${legX.toFixed(1)}, ${legY.toFixed(1)})">` +
+                `<line x1="0" y1="0" x2="18" y2="0" style="stroke:${IDLE_COL};stroke-width:3;stroke-dasharray:2 4"/>` +
+                `<text x="26" y="4" class="g-legtext">Idle (No Balancing)</text>` +
+                `<line x1="0" y1="${legGap}" x2="18" y2="${legGap}" style="stroke:${BAL_COL};stroke-width:3"/>` +
+                `<text x="26" y="${legGap + 4}" class="g-legtext">Balancing Active</text>` +
+                `</g>`;
+
+            const axis = `<line x1="${padL}" y1="${baseline}" x2="${W - padR}" y2="${baseline}" class="g-axis"/>`;
+            const yTitle = `<text x="16" y="${(padT + plotH / 2).toFixed(1)}" class="g-axistitle" transform="rotate(-90 16 ${(padT + plotH / 2).toFixed(1)})">Voltage (V)</text>`;
+            const xTitle = `<text x="${(padL + plotW / 2).toFixed(1)}" y="${H - 8}" class="g-axistitle">Cell ${ci + 1} — Voltage Trend (idle vs balancing)</text>`;
+
+            svgInner = grid + axis + marker + series + dots + liveDot + endLbl + legend + xlab + yTitle + xTitle + hoverLayer;
+
+        }
+
+    }
+
+    else if (graphHighlightGroup === "chg" || graphHighlightGroup === "dis") {
+
+        // --- BAR chart of only the charging (or discharging) cells: one bar
+        // per cell = its current voltage. No overlapping lines. ---
+        const isChg = graphHighlightGroup === "chg";
+        const label = isChg ? "Charging" : "Discharging";
+
+        const targetCells = [];
+        for (let i = 0; i < n; i++) {
+            const took = isChg ? cellChargeCount[i] > 0 : cellDischargeCount[i] > 0;
+            const now = isChg ? cellCharging[i] : cellBalancing[i];
+            if (took || now) targetCells.push(i);
+        }
+
+        if (!targetCells.length) {
+
+            svgInner = `<text x="${W / 2}" y="${H / 2}" class="g-axistitle" text-anchor="middle">No ${label.toLowerCase()} cells yet</text>`;
+
+        } else {
+
+            const m = targetCells.length;
+            const vlist = targetCells.map(i => values[i]);
+            const ovV = parseFloat(document.getElementById("ovProtection")?.value);
+            const uvV = parseFloat(document.getElementById("uvProtection")?.value);
+
+            // Include avg / OV / UV in the range so every level line shows.
+            const scaleVals = vlist.concat([avgV, ovV, uvV].filter(v => !isNaN(v)));
+            let lo = Math.floor((Math.min(...scaleVals) - 0.03) * 100) / 100;
+            let hi = Math.ceil((Math.max(...scaleVals) + 0.03) * 100) / 100;
+            if (lo < 0) lo = 0;
+            if (hi - lo < 0.1) hi = lo + 0.1;
+            const yOf = v => padT + plotH * (1 - (v - lo) / (hi - lo));
+
+            let grid = "";
+            for (let t = 0; t <= 5; t++) {
+                const v = lo + (hi - lo) * (t / 5);
+                const y = yOf(v);
+                grid += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" class="g-grid"/>`;
+                grid += `<text x="${padL - 8}" y="${(y + 4).toFixed(1)}" class="g-ylabel">${v.toFixed(3)}</text>`;
+            }
+
+            // Bright, clearly-labelled level lines (dark pill behind each label).
+            const refLine = graphRefLine(lo, hi, yOf, padL, padR, W);
+            let refs = "";
+            refs += refLine(avgV, "#60a5fa", "avg " + avgV.toFixed(3), "right");
+            refs += refLine(ovV, "#f87171", "OV " + (isNaN(ovV) ? "" : ovV.toFixed(3)), "right");
+            refs += refLine(uvV, "#fbbf24", "UV " + (isNaN(uvV) ? "" : uvV.toFixed(3)), "left");
+
+            const slotW = plotW / m;
+            const barW = Math.min(50, slotW * 0.6);
+
+            let bars = "";
+            targetCells.forEach((i, slot) => {
+                const cx = padL + slotW * (slot + 0.5);
+                const y = yOf(values[i]);
+                const g = graphCellGroup(i);
+                const c = GRAPH_GROUP_COLOR[g];
+                const isSel = selectedGraphCell === i;
+                const h = Math.max(1, baseline - y);
+                const x = cx - barW / 2;
+
+                const grow = graphAnimate
+                    ? `<animate attributeName="height" from="0" to="${h.toFixed(1)}" dur="0.7s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.25 1 0.5 1"/><animate attributeName="y" from="${baseline.toFixed(1)}" to="${y.toFixed(1)}" dur="0.7s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.25 1 0.5 1"/>`
+                    : "";
+
+                bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="5" ry="5" class="g-bar${isSel ? " sel" : ""}" fill="url(#ggrad-${g})" style="filter:drop-shadow(0 0 5px ${c}66);cursor:pointer" onclick="selectGraphCell(${i})"><title>Cell ${i + 1}: ${values[i].toFixed(3)} V</title>${grow}</rect>`;
+                bars += `<text x="${cx.toFixed(1)}" y="${(y - 7).toFixed(1)}" class="g-vlabel${isSel ? " g-vlabel-sel" : ""}">${values[i].toFixed(3)}</text>`;
+                bars += `<text x="${cx.toFixed(1)}" y="${(baseline + 18).toFixed(1)}" class="g-xlabel${isSel ? " g-xlabel-sel" : ""}">${i + 1}</text>`;
+            });
+
+            const axis = `<line x1="${padL}" y1="${baseline}" x2="${W - padR}" y2="${baseline}" class="g-axis"/>`;
+            const yTitle = `<text x="16" y="${(padT + plotH / 2).toFixed(1)}" class="g-axistitle" transform="rotate(-90 16 ${(padT + plotH / 2).toFixed(1)})">Voltage (V)</text>`;
+            const xTitle = `<text x="${(padL + plotW / 2).toFixed(1)}" y="${H - 8}" class="g-axistitle">${label} cells — current voltage</text>`;
+
+            svgInner = grid + refs + axis + bars + yTitle + xTitle;
+
+        }
+
+    }
+
+    else if (graphView === "trend") {
+
+        // --- Trend over time: Max / Average / Min converging = balancing works ---
+        const hist = graphHistory.slice();
+
+        if (hist.length < 2) {
+
+            body.innerHTML = `<svg viewBox="0 0 ${W} ${H}" class="graph-svg"><text x="${W / 2}" y="${H / 2}" class="g-axistitle" text-anchor="middle">Collecting trend… keep the graph open for a few seconds</text></svg>`;
+
+            if (detailEl) renderGraphDetail(detailEl, values, avgV, maxCell, minCell);
+            return;
+
+        }
+
+        const t0 = hist[0].t, t1 = hist[hist.length - 1].t;
+        const span = Math.max(1, t1 - t0);
+
+        // If a single cell is chosen, this trend is JUST that cell (+ average
+        // for reference). Otherwise it's the whole-pack Max / Avg / Min.
+        const single = selectedGraphCell !== null;
+        const ci = selectedGraphCell;
+
+        const cellVal = p => (p.cells && p.cells[ci] !== undefined) ? p.cells[ci] : null;
+
+        // Y range.
+        let ylo, yhi;
+        if (single) {
+            const vals = hist.map(cellVal).filter(v => v !== null).concat(hist.map(p => p.avg));
+            ylo = Math.min(...vals);
+            yhi = Math.max(...vals);
+        } else {
+            ylo = Math.min(...hist.map(p => p.min));
+            yhi = Math.max(...hist.map(p => p.max));
+        }
+
+        const padY = Math.max(0.02, (yhi - ylo) * 0.15);
+        ylo = Math.floor((ylo - padY) * 100) / 100;
+        yhi = Math.ceil((yhi + padY) * 100) / 100;
+        if (yhi - ylo < 0.02) yhi = ylo + 0.02;
+
+        const tx = t => padL + plotW * ((t - t0) / span);
+        const ty = v => padT + plotH * (1 - (v - ylo) / (yhi - ylo));
+
+        let grid = "";
+        for (let k = 0; k <= 5; k++) {
+            const v = ylo + (yhi - ylo) * (k / 5);
+            const y = ty(v);
+            grid += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" class="g-grid"/>`;
+            grid += `<text x="${padL - 8}" y="${(y + 4).toFixed(1)}" class="g-ylabel">${v.toFixed(2)}</text>`;
+        }
+
+        // X time labels (seconds ago).
+        let xlab = "";
+        for (let k = 0; k <= 4; k++) {
+            const tt = t0 + span * (k / 4);
+            const secsAgo = Math.round((t1 - tt) / 1000);
+            xlab += `<text x="${tx(tt).toFixed(1)}" y="${(baseline + 18).toFixed(1)}" class="g-xlabel">${secsAgo === 0 ? "now" : "-" + secsAgo + "s"}</text>`;
+        }
+
+        const polyKey = (key, cls) =>
+            `<path d="${smoothD(hist.map(p => [tx(p.t), ty(p[key])]))}" class="${cls}" fill="none"/>`;
+
+        const polyCell = cls => {
+            const pts = hist.filter(p => cellVal(p) !== null).map(p => [tx(p.t), ty(cellVal(p))]);
+            return `<path d="${smoothD(pts)}" class="${cls}" fill="none" style="stroke:${GRAPH_GROUP_COLOR[graphCellGroup(ci, maxCell, minCell)]}"/>`;
+        };
+
+        const last = hist[hist.length - 1];
+        const dotXY = (t, v, cls, style) => `<circle cx="${tx(t).toFixed(1)}" cy="${ty(v).toFixed(1)}" r="3.5" class="${cls}"${style ? ` style="${style}"` : ""}/>`;
+
+        let series, dots, legend, subtitle;
+
+        if (single) {
+
+            const c = GRAPH_GROUP_COLOR[graphCellGroup(ci, maxCell, minCell)];
+
+            series = polyKey("avg", "g-line-avg g-line-dash") + polyCell("g-line-cell");
+            dots = dotXY(last.t, last.avg, "g-dot-avg") +
+                   (cellVal(last) !== null ? dotXY(last.t, cellVal(last), "", `fill:${c}`) : "");
+
+            legend =
+                `<g transform="translate(${padL + 6}, ${padT + 4})">` +
+                `<rect x="-4" y="-12" width="180" height="20" rx="6" fill="#ffffff" opacity="0.85"/>` +
+                `<circle cx="4" cy="-2" r="4" style="fill:${c}"/><text x="12" y="2" class="g-legtext">Cell ${ci + 1}</text>` +
+                `<circle cx="82" cy="-2" r="4" class="g-dot-avg"/><text x="90" y="2" class="g-legtext">Pack Avg</text>` +
+                `</g>`;
+
+        } else {
+
+            // ALL cells, each its own line from start → now. Idle cells are
+            // thin grey; the cells currently balancing stand out — discharging
+            // red, charging green — so you see which cells are active among all.
+            const cellPoly = (cellIdx, cls, style) => {
+                const pts = hist.filter(p => p.cells && p.cells[cellIdx] !== undefined)
+                    .map(p => [tx(p.t), ty(p.cells[cellIdx])]);
+                return pts.length ? `<path d="${smoothD(pts)}" class="${cls}" fill="none"${style ? ` style="${style}"` : ""}/>` : "";
+            };
+
+            let idleLines = "", activeLines = "";
+            for (let cellIdx = 0; cellIdx < n; cellIdx++) {
+                if (cellCharging[cellIdx]) activeLines += cellPoly(cellIdx, "g-cellline active", "stroke:#22c55e");
+                else if (cellBalancing[cellIdx]) activeLines += cellPoly(cellIdx, "g-cellline active", "stroke:#ef4444");
+                else idleLines += cellPoly(cellIdx, "g-cellline idle");
+            }
+
+            // Idle behind, active on top, plus the pack average as a reference.
+            series = idleLines + polyKey("avg", "g-line-avg g-line-dash") + activeLines;
+            dots = dotXY(last.t, last.avg, "g-dot-avg");
+
+            legend =
+                `<g transform="translate(${padL + 6}, ${padT + 4})">` +
+                `<rect x="-4" y="-12" width="260" height="20" rx="6" fill="#ffffff" opacity="0.85"/>` +
+                `<line x1="0" y1="-2" x2="14" y2="-2" style="stroke:#94a3b8;stroke-width:2"/><text x="18" y="2" class="g-legtext">Idle cell</text>` +
+                `<line x1="72" y1="-2" x2="86" y2="-2" style="stroke:#ef4444;stroke-width:2.5"/><text x="90" y="2" class="g-legtext">Discharging</text>` +
+                `<line x1="164" y1="-2" x2="178" y2="-2" style="stroke:#22c55e;stroke-width:2.5"/><text x="182" y="2" class="g-legtext">Charging</text>` +
+                `</g>`;
+
+        }
+
+        const axis = `<line x1="${padL}" y1="${baseline}" x2="${W - padR}" y2="${baseline}" class="g-axis"/>`;
+        const yTitle = `<text x="16" y="${(padT + plotH / 2).toFixed(1)}" class="g-axistitle" transform="rotate(-90 16 ${(padT + plotH / 2).toFixed(1)})">Voltage (V)</text>`;
+        const xTitle = `<text x="${(padL + plotW / 2).toFixed(1)}" y="${H - 8}" class="g-axistitle">${single ? "Cell " + (ci + 1) + " voltage over time" : "All cells — voltage over time"}</text>`;
+
+        svgInner = grid + axis + series + dots + legend + xlab + yTitle + xTitle;
+
+    }
+
+    else if (graphView === "deviation") {
+
+        // --- Deviation-from-average view: the core balancing outlier picture ---
+        const centerY = padT + plotH / 2;
+        let maxAbs = 0.005;
+        for (let i = 0; i < n; i++) maxAbs = Math.max(maxAbs, Math.abs(values[i] - avgV));
+        const devScale = (plotH / 2 - 10) / maxAbs;
+
+        let grid = "";
+        for (let s = -2; s <= 2; s++) {
+            const dev = maxAbs * (s / 2);
+            const y = centerY - dev * devScale;
+            grid += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" class="${s === 0 ? "g-devcenter" : "g-grid"}"/>`;
+            grid += `<text x="${padL - 8}" y="${(y + 4).toFixed(1)}" class="g-ylabel">${dev * 1000 >= 0 ? "+" : ""}${(dev * 1000).toFixed(0)}</text>`;
+        }
+
+        // On-chart guidance: label the centre line and the two directions.
+        grid += `<text x="${(padL + 4).toFixed(1)}" y="${(centerY - 6).toFixed(1)}" class="g-devcenter-label">— Pack average (0 mV) —</text>`;
+        grid += `<text x="${(W - padR - 4).toFixed(1)}" y="${(padT + 14).toFixed(1)}" class="g-devhint g-devhint-up">▲ Higher than average</text>`;
+        grid += `<text x="${(W - padR - 4).toFixed(1)}" y="${(baseline - 6).toFixed(1)}" class="g-devhint g-devhint-dn">▼ Lower than average</text>`;
+
+        // Points along the deviation line, ordered biggest outliers first.
+        const pts = order.map((i, slot) => {
+            const dev = values[i] - avgV;
+            return { i, dev, cx: xSlot(slot), y: centerY - dev * devScale };
+        });
+
+        // Area between the line and the centre (average) line, then the line.
+        const devTop = pts.map(p => [p.cx, p.y]);
+
+        let bars = `<path d="${smoothArea(devTop, centerY)}" fill="url(#gareaGrad)" fill-rule="nonzero"/>`;
+        bars += `<path d="${smoothD(devTop)}" class="g-arealine" fill="none"/>`;
+
+        for (const p of pts) {
+            const g = graphCellGroup(p.i);
+            const c = GRAPH_GROUP_COLOR[g];
+            const dim = graphIsDimmed(p.i, g);
+            const isSel = selectedGraphCell === p.i;
+            const op = dim ? 0.25 : 1;
+            const r = isSel ? 6.5 : 4.5;
+
+            bars += `<circle cx="${p.cx.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${r}" class="g-areadot${isSel ? " sel" : ""}" fill="${c}" opacity="${op}" style="cursor:pointer" onclick="selectGraphCell(${p.i})"><title>Cell ${p.i + 1}: ${p.dev >= 0 ? "+" : ""}${(p.dev * 1000).toFixed(0)} mV vs avg</title></circle>`;
+
+            if (n <= 24) {
+                const ly = p.dev >= 0 ? (p.y - 11) : (p.y + 17);
+                bars += `<text x="${p.cx.toFixed(1)}" y="${ly.toFixed(1)}" class="g-vlabel${isSel ? " g-vlabel-sel" : ""}" opacity="${dim ? 0.35 : 1}">${p.dev >= 0 ? "+" : ""}${(p.dev * 1000).toFixed(0)}</text>`;
+            }
+        }
+
+        const yTitle = `<text x="16" y="${(padT + plotH / 2).toFixed(1)}" class="g-axistitle" transform="rotate(-90 16 ${(padT + plotH / 2).toFixed(1)})">Deviation from average (mV)</text>`;
+        const xTitle = `<text x="${(padL + plotW / 2).toFixed(1)}" y="${H - 8}" class="g-axistitle">Cells — biggest outliers first</text>`;
+
+        svgInner = grid + bars + cellLabels() + yTitle + xTitle;
+
+    } else {
+
+        // --- Voltage bars. Warning / Critical show ONLY those cells; Normal
+        // and All show every cell. ---
+        let shown = order;
+        if (graphHighlightGroup === "warning") shown = order.filter(i => graphCellSeverity(i) === "warning");
+        else if (graphHighlightGroup === "critical") shown = order.filter(i => graphCellSeverity(i) === "critical");
+
+        if (!shown.length) {
+
+            svgInner = `<text x="${W / 2}" y="${H / 2}" class="g-axistitle" text-anchor="middle">No ${graphHighlightGroup} cells right now</text>`;
+
+        } else {
+
+            const m = shown.length;
+            const xSlotL = slot => padL + (plotW / m) * (slot + 0.5);
+            const slotOfL = {};
+            shown.forEach((i, slot) => { slotOfL[i] = slot; });
+
+            const shownV = shown.map(i => values[i]);
+            const startV = parseFloat(document.getElementById("startVoltage")?.value);
+            const ovV = parseFloat(document.getElementById("ovProtection")?.value);
+            const uvV = parseFloat(document.getElementById("uvProtection")?.value);
+
+            // Include the threshold levels (avg / start / OV / UV) in the y-range
+            // so every level line is actually inside the chart and shows correctly.
+            const scaleVals = shownV.concat([avgV, startV, ovV, uvV].filter(v => !isNaN(v)));
+            let lo = Math.floor((Math.min(...scaleVals) - 0.03) * 100) / 100;
+            let hi = Math.ceil((Math.max(...scaleVals) + 0.03) * 100) / 100;
+            if (lo < 0) lo = 0;
+            if (hi - lo < 0.1) hi = lo + 0.1;
+            const yOf = v => padT + plotH * (1 - (v - lo) / (hi - lo));
+
+            // Zone bands behind the bars: red near OV (top), amber near UV
+            // (bottom), green safe in the middle — so each bar visually lands in
+            // a zone and you see which cells are creeping toward a limit.
+            const warnMargin = 0.05;
+            const highWarn = isNaN(ovV) ? hi : Math.max(lo, ovV - warnMargin);
+            const lowWarn = isNaN(uvV) ? lo : Math.min(hi, uvV + warnMargin);
+            const yHigh = yOf(highWarn), yLow = yOf(lowWarn);
+            let bands = "";
+            bands += `<rect x="${padL}" y="${yHigh.toFixed(1)}" width="${plotW}" height="${Math.max(0, yLow - yHigh).toFixed(1)}" fill="rgba(34,197,94,0.07)"/>`;
+            if (!isNaN(ovV)) bands += `<rect x="${padL}" y="${padT}" width="${plotW}" height="${Math.max(0, yHigh - padT).toFixed(1)}" fill="rgba(248,113,113,0.14)"/>`;
+            if (!isNaN(uvV)) bands += `<rect x="${padL}" y="${yLow.toFixed(1)}" width="${plotW}" height="${Math.max(0, baseline - yLow).toFixed(1)}" fill="rgba(251,191,36,0.14)"/>`;
+            if (!isNaN(ovV) && yHigh - padT > 14) bands += `<text x="${(W - padR - 6).toFixed(1)}" y="${(padT + 13).toFixed(1)}" text-anchor="end" style="fill:#f87171;font-size:10px;font-weight:700;opacity:.85">near OV</text>`;
+            if (!isNaN(uvV) && baseline - yLow > 14) bands += `<text x="${(W - padR - 6).toFixed(1)}" y="${(baseline - 6).toFixed(1)}" text-anchor="end" style="fill:#fbbf24;font-size:10px;font-weight:700;opacity:.85">near UV</text>`;
+
+            let grid = "";
+            for (let t = 0; t <= 5; t++) {
+                const v = lo + (hi - lo) * (t / 5);
+                const y = yOf(v);
+                grid += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" class="g-grid"/>`;
+                grid += `<text x="${padL - 8}" y="${(y + 4).toFixed(1)}" class="g-ylabel">${v.toFixed(3)}</text>`;
+            }
+
+            // Bright, clearly-labelled level lines — each label in a dark pill
+            // so it stays readable over the bars. avg=blue, start=grey,
+            // OV=red, UV=amber.
+            const refLine = graphRefLine(lo, hi, yOf, padL, padR, W);
+            let refs = "";
+            refs += refLine(avgV, "#60a5fa", "avg " + avgV.toFixed(3), "right");
+            refs += refLine(startV, "#cbd5e1", "start " + (isNaN(startV) ? "" : startV.toFixed(3)), "left");
+            refs += refLine(ovV, "#f87171", "OV " + (isNaN(ovV) ? "" : ovV.toFixed(3)), "right");
+            refs += refLine(uvV, "#fbbf24", "UV " + (isNaN(uvV) ? "" : uvV.toFixed(3)), "left");
+
+            const slotW = plotW / m;
+            const barW = Math.min(48, slotW * 0.62);
+
+            // Colour each bar by its voltage LEVEL (green normal, yellow high,
+            // red very-high, blue low) — matching the cells and the reference.
+            // BUT in the Warning / Critical filtered views, colour by SEVERITY
+            // instead (amber = warning, red = critical) so an out-of-balance
+            // cell never looks "Normal" green — every visible bar reads as the
+            // fault it was filtered for.
+            const LEVEL_COLOR = { normal: "#22c55e", high: "#f5c518", veryhigh: "#ef4444", low: "#3b82f6" };
+            const sevView = graphHighlightGroup === "warning" || graphHighlightGroup === "critical";
+            const SEV_COLOR = { warning: "#f59e0b", critical: "#dc2626" };
+
+            let bars = "";
+            shown.forEach((i, slot) => {
+                const cx = xSlotL(slot);
+                const y = yOf(values[i]);
+                const lvl = cellLevel(i);
+                const c = sevView ? SEV_COLOR[graphHighlightGroup] : LEVEL_COLOR[lvl];
+                const isSel = selectedGraphCell === i;
+                const h = Math.max(1, baseline - y);
+                const x = cx - barW / 2;
+
+                const grow = graphAnimate
+                    ? `<animate attributeName="height" from="0" to="${h.toFixed(1)}" dur="0.7s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.25 1 0.5 1"/><animate attributeName="y" from="${baseline.toFixed(1)}" to="${y.toFixed(1)}" dur="0.7s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="0.25 1 0.5 1"/>`
+                    : "";
+
+                bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="4" ry="4" class="g-bar${isSel ? " sel" : ""}" fill="${c}" style="cursor:pointer" onclick="selectGraphCell(${i})"><title>Cell ${i + 1}: ${values[i].toFixed(3)} V</title>${grow}</rect>`;
+
+                if (m <= 24)
+                    bars += `<text x="${cx.toFixed(1)}" y="${(y - 10).toFixed(1)}" class="g-vlabel${isSel ? " g-vlabel-sel" : ""}">${values[i].toFixed(3)}</text>`;
+
+                bars += `<text x="${cx.toFixed(1)}" y="${(baseline + 24).toFixed(1)}" class="g-xlabel${isSel ? " g-xlabel-sel" : ""}">${i + 1}</text>`;
+            });
+
+            const axis = `<line x1="${padL}" y1="${baseline}" x2="${W - padR}" y2="${baseline}" class="g-axis"/>` +
+                `<line x1="${padL}" y1="${padT}" x2="${padL}" y2="${baseline}" class="g-axis"/>`;
+
+            // Balancing flow arrow (only in the full / normal view).
+            let flow = "";
+            if (!graphHighlightGroup || graphHighlightGroup === "normal") {
+                const dis = balancingCellIndices();
+                const recv = chargingCellIndex(dis);
+                if (dis.length && recv >= 0 && slotOfL[dis[0]] !== undefined && slotOfL[recv] !== undefined) {
+                    const sx = xSlotL(slotOfL[dis[0]]);
+                    const rx = xSlotL(slotOfL[recv]);
+                    const sy = yOf(values[dis[0]]) - 12;
+                    const ry = yOf(values[recv]) - 12;
+                    const topY = Math.min(sy, ry) - 26;
+                    flow = `<path d="M ${sx.toFixed(1)} ${sy.toFixed(1)} Q ${((sx + rx) / 2).toFixed(1)} ${topY.toFixed(1)} ${rx.toFixed(1)} ${ry.toFixed(1)}" class="g-flowline" marker-end="url(#gflow)"/>`;
+                }
+            }
+
+            // Colour legend — voltage level (matches the cells). Vertical, on
+            // the RIGHT side of the graph.
+            const lgItem = (yy, col, label) =>
+                `<rect x="0" y="${yy}" width="13" height="13" rx="3" fill="${col}"/>` +
+                `<text x="19" y="${yy + 11}" class="g-legtext">${label}</text>`;
+            let legend;
+            if (sevView) {
+                // Only the filtered fault class is on screen — one matching key.
+                const col = SEV_COLOR[graphHighlightGroup];
+                const lab = graphHighlightGroup === "warning" ? "Warning" : "Critical";
+                legend =
+                    `<g transform="translate(${W - padR + 34}, ${(padT + plotH / 2 - 6).toFixed(1)})">` +
+                    lgItem(0, col, lab) +
+                    `</g>`;
+            } else {
+                legend =
+                    `<g transform="translate(${W - padR + 44}, ${(padT + plotH / 2 - 44).toFixed(1)})">` +
+                    lgItem(0, "#22c55e", "Normal") +
+                    lgItem(24, "#f5c518", "High") +
+                    lgItem(48, "#ef4444", "Very High") +
+                    lgItem(72, "#3b82f6", "Low") +
+                    `</g>`;
+            }
+
+            const titleTxt = graphHighlightGroup === "warning" ? "⚠ Warning cells only"
+                : graphHighlightGroup === "critical" ? "⛔ Critical cells only"
+                : "Cell Number" + (graphView === "sorted" ? " (high → low)" : "");
+
+            const yTitle = `<text x="16" y="${(padT + plotH / 2).toFixed(1)}" class="g-axistitle" transform="rotate(-90 16 ${(padT + plotH / 2).toFixed(1)})">Voltage (V)</text>`;
+            const xTitle = `<text x="${(padL + plotW / 2).toFixed(1)}" y="${H - 8}" class="g-axistitle">${titleTxt}</text>`;
+
+            svgInner = grid + axis + bars + flow + legend + yTitle + xTitle;
+
+        }
+
+    }
+
+    body.innerHTML =
+        `<svg viewBox="0 0 ${W} ${H}" class="graph-svg" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Cell voltage chart">` +
+        defs + svgInner +
+        `</svg>`;
+
+    // Entrance animations play once; the next live refresh is a quiet update.
+    graphAnimate = false;
+
+    // ---- Balancing progress bar (spread closing toward balanced) ----
+    const balEl = document.getElementById("graphBalProgress");
+
+    if (balEl) {
+
+        if (balancingActive && balanceStartSpread && balanceStartSpread > BALANCED_DIFF_V) {
+
+            const curSpread = maxV - minV;
+            const prog = Math.max(0, Math.min(1,
+                (balanceStartSpread - curSpread) / (balanceStartSpread - BALANCED_DIFF_V)));
+            const clock = balanceCompletionClock();
+
+            balEl.style.display = "flex";
+            balEl.innerHTML =
+                `<span class="gbp-label">⚖ Balancing · spread ${curSpread.toFixed(3)} V${clock ? ` · completes ${clock}` : ""}</span>` +
+                `<span class="gbp-track"><span class="gbp-fill" style="width:${(prog * 100).toFixed(0)}%"></span></span>` +
+                `<span class="gbp-pct">${(prog * 100).toFixed(0)}%</span>`;
+
+        } else {
+
+            balEl.style.display = "none";
+            balEl.innerHTML = "";
+
+        }
+
+    }
+
+    // ---- Detail panel for the clicked cell ----
+    if (detailEl) renderGraphDetail(detailEl, values, avgV, maxCell, minCell);
+
+}
+
+// The panel under the chart: everything about the clicked cell.
+function renderGraphDetail(detailEl, values, avgV, maxCell, minCell) {
+
+    if (selectedGraphCell === null) {
+
+        detailEl.innerHTML = `<span class="gd-hint">Tip: click a bar to see that cell's details</span>`;
+
+        return;
+
+    }
+
+    const i = selectedGraphCell;
+    const v = values[i];
+    const g = graphCellGroup(i, maxCell, minCell);
+
+    // State tags (a cell can be several at once, e.g. Highest + Discharging).
+    const tags = [];
+
+    if (cellOVFault[i]) tags.push(`<span class="gd-tag gd-fault">Over-Voltage</span>`);
+    if (cellUVFault[i]) tags.push(`<span class="gd-tag gd-fault">Under-Voltage</span>`);
+    if (cellBalancing[i]) tags.push(`<span class="gd-tag" style="--gc:#d97706">Discharging</span>`);
+    if (cellCharging[i]) tags.push(`<span class="gd-tag" style="--gc:#0d9488">Charging</span>`);
+    if (i === maxCell) tags.push(`<span class="gd-tag" style="--gc:#ef4444">Highest</span>`);
+    if (i === minCell) tags.push(`<span class="gd-tag" style="--gc:#10b981">Lowest</span>`);
+    if (!tags.length) tags.push(`<span class="gd-tag" style="--gc:#2563eb">Normal</span>`);
+
+    // Balancing partner, if this cell is part of a transfer.
+    const dis = balancingCellIndices();
+    const recv = chargingCellIndex(dis);
+
+    let partner = "";
+
+    if (cellBalancing[i]) {
+        partner = recv >= 0
+            ? `<div class="gd-row"><span>Transfer</span><b>Cell ${i + 1} → Cell ${recv + 1}</b></div>`
+            : `<div class="gd-row"><span>Transfer</span><b>Dissipating</b></div>`;
+    }
+    else if (cellCharging[i] && dis.length) {
+        partner = `<div class="gd-row"><span>Transfer</span><b>Cell ${dis[0] + 1} → Cell ${i + 1}</b></div>`;
+    }
+
+    const diff = v - avgV;
+
+    detailEl.innerHTML = `
+        <div class="gd-head">
+            <span class="gd-cellchip" style="--gc:${GRAPH_GROUP_COLOR[g]}">Cell ${i + 1}</span>
+            ${tags.join(" ")}
+            <button class="gd-clear" onclick="selectGraphCell(${i})">✕</button>
+        </div>
+        <div class="gd-grid">
+            <div class="gd-row"><span>Voltage</span><b>${v.toFixed(3)} V</b></div>
+            <div class="gd-row"><span>vs Average</span><b>${diff >= 0 ? "+" : ""}${diff.toFixed(3)} V</b></div>
+            <div class="gd-row"><span>Discharged</span><b>▼ ${cellDischargeCount[i]}</b></div>
+            <div class="gd-row"><span>Charged</span><b>▲ ${cellChargeCount[i]}</b></div>
+            ${partner}
+        </div>`;
+
+}
