@@ -241,6 +241,42 @@ async function openSerialPicker() {
 
         console.log(error);
 
+        // Surface WHY it failed instead of only turning the dot red. The most
+        // common cause is the port already being open in another program
+        // (Docklight, another browser tab) — one program owns a COM port at a
+        // time. With a com0com virtual pair, Docklight holds one port and the
+        // dashboard must open its PARTNER port, not the same one.
+        const name = error && error.name ? error.name : "";
+        const msg = (error && error.message ? error.message : "").toLowerCase();
+
+        let hint;
+
+        if (name === "NotFoundError") {
+
+            // The picker was cancelled — not really an error.
+            hint = "";
+
+        }
+
+        else if (msg.includes("open") || msg.includes("access") || msg.includes("busy") || name === "InvalidStateError" || name === "NetworkError") {
+
+            hint = "⚠ Could not open that port — it's already in use. Close Docklight on that port, or pick the com0com PARTNER port (not the one Docklight uses).";
+
+        }
+
+        else {
+
+            hint = "⚠ Could not open the port: " + (error && error.message ? error.message : name || "unknown error");
+
+        }
+
+        if (hint) {
+
+            message.style.color = "#dc2626";
+            message.innerHTML = hint;
+
+        }
+
     }
 
 }
