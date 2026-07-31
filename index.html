@@ -2,1088 +2,633 @@
 <html lang="en">
 
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BNC Motors | BMS Dashboard</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='50' fill='%230e7490'/><image href='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEMAAAAmCAYAAACf8yaaAAAABHNCSVQICAgIfAhkiAAABW1JREFUaEPNmc1xWzcQx8NbTol9ziH0LbfYFYSuwHYFoSuIU0GoCiJXELqC2BWEriByBaEriHzLTfn/MIs34GqBh0fxidoZjEYP2A/89wMLcPHVmejm5ubpYrG4OpP6UO3iXMYIjI10v39IgJwbjGuBcXkuh3i93WDIk0sxv9BYaTzV4P+SCPk93tb4oE1etzYpeTvmtQ55k0i82Y5si+dHNvYQeR97hY+CIcUo/M1A6JXLuq3GhYwBoFtkYPykicdjwGVm8WDHWmM5wRCcspGOt2M8VTCk+JGY/9B4OSakMY8hpMFbv2HJvzG+15oDuCppKTb8PhEELw+n/CpdRG5IIRhUeq3+SwNAWkQIsubHkXWE7PMSkAKMd/q+rvFrHXM4pUWfNAnwPbYQJReRsFtgmHK8EAHxTt9Bdhd4mvV4kEFOewKQV6SNpR5gQxTRx5FxWgcIEVCf9X2LLdFpZM5caf6NxveB7K34XvvvB2A0IgIQQHQfGe2/2WZJDx8xe8l44sCA/Vm5KUtRHOKB+GJ2dJ9AkgUgG41vnZ2kLnMDDWCYAX9rZumYRnO6BpBk4r2fi/lkgBnIZjMNhpkdRA2pWhKp8LLXISWjydzpm3fOwd5KMLzhyCPPEXI0FRsfaoM1XJwMma6k55lFJqnhgaA2AUTzuG4ZWQEEeU+y3ASG9RD/OGFHR4Q3CvmlR/U/dcfXlVf6BhC+VjUL7BQvGSB78ZQpM0RlBsMb91HGr6YomrK26DHG2C5kx2Zs0ZR5O6b/dDxEx35haP0bTU5RMmWtdBKFyxGek0VmEKk7faPhy0T/cQkYawvPPEErfZdGaxSXoseI1nJirKIjc1Rw54JgzykTAGMrGWXFn80j2FqpT3kb9A+DI+YCJKod0rUADB8yKX86QZ68LOgxsgyOzpUGJwk5TYOGbbNQsO/vAOMgfwFoFu0mtFLAaOpogIiK1Hrfgx0+IxIY+cKUzL0HIzZSU/YY6eiUGXxj7lx2/HAOMGilf7E9p/okIPwd5JO++8brpAEbNH4pMsjL8pjpfl84xjrTx0bXGuiOWu9Z+xzsDhq/EIzn91C4qA+0whTKKAJuXaKOAb7FIzC4h5W6vyEyyrCFf1ZD7Gil5W69l5y88yyBCY73LwqAR4ABOqCUqfq+cArvWMNTey/JKjhWuSLMQkG9SEU830320lo+gqT29NSWBJ1fTcVsqWoNF+1EeSFM4GcwNposj7uDq+0pQAlODMTSeqPLv0bN1vgFZeGzgFhiTAYDlK6cUTypca2+E5knoofldAfRWGvkozbpKnsd8TOHwXdOm0pkDilZPu7Q/fmr7U7fWHzUo4oBUXu14jJ2HXSkg6dcNKWe5FjPVIA4OML9GyjKyksbuomY9JA7xRC7gxARKQQL+kA0lABrLWDnB5dkoL5x/JZPg4jYaNz62WHMLt/d2noik0enwdHR6zib92+FMFBQqbpNUOx0IrTXgZGpavvvrgFKTwgmZ1eAlNnQz+M095kmSQaOBcClWxg+E0RgUD+2GtFzPzIxMI+sA56VjVobXT2hXAgPPUYDEPTiIOoI4GBPJuxg86R9eWLk+ep7SesXNd+MOXC7/0X5m1a+uyboADQDBOeM/VDVY1Dzhb15Xbe830hLeXfpUZrXUB8AAu81SbpyeoY9htUQbPG/f4yJZh6HXMoO+KvU9XZhFX8tKasOY1BM+KKcDXZR0RUe/KBUMtvphB2MnkghEraMnhOxCwxnEIAwoKX93esvOczvH7uu3btF+VpQ9hgtOZZa1Kdco7Ap68YefgLlbzdNBqNb8hELOWK1gajoHSFtOstDA4P+Yzt9G6fheGhgfC0w/jvN1qZL+R89iYrP7OoPPAAAAABJRU5ErkJggg==' x='16' y='31' width='68' height='38.6'/></svg>">
 
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-<title>BNC Motors - Product Validation Test Report</title>
-
-<!-- The ?v= query is a cache buster. Bump it whenever style.css or
-     script.js changes, otherwise the browser keeps serving the old file
-     from disk and you see stale generated text. -->
-<link rel="stylesheet" href="style.css?v=169">
-
-<!-- Vendored locally so the report works with no internet connection. -->
-<script src="vendor/html2pdf.bundle.min.js"></script>
-
+    <link rel="stylesheet" href="style.css?v=20260729q">
+    <link rel="manifest" href="manifest.json">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 
 <body>
 
-<div id="app">
+    <!-- Status Message -->
+    <div id="systemStatus" class="status-message"></div>
 
-<aside id="sidebar">
+    <!-- Safety Limit Warning Banner -->
+    <div id="safetyBanner" class="safety-banner"></div>
 
-    <div class="side-brand"><span class="ico">⚡</span> EV Testing Guide</div>
+    <div class="app-shell">
 
-    <nav class="side-nav">
-        <button class="side-link active" data-view="home"><span class="ico">🏠</span> Home</button>
-        <button class="side-link" data-view="cases"><span class="ico">🧪</span> Product &amp; Test Cases</button>
-        <button class="side-link" data-view="pvt"><span class="ico">📋</span> Product Validation Test Report</button>
-        <button class="side-link" data-view="rca"><span class="ico">🔍</span> RCA Report</button>
-    </nav>
+        <!-- ================= SIDEBAR ================= -->
+        <aside class="app-sidebar">
+            <div class="side-logo"><img src="bnc-logo.png" alt="BNC" onerror="this.style.display='none';this.parentNode.textContent='B'"></div>
+            <nav class="side-nav">
+                <button class="side-btn active" title="Dashboard">🏠</button>
+                <button class="side-btn" title="Graph" onclick="openGraph()">📊</button>
+                <button class="side-btn" title="EQ Settings" onclick="equalizationSetting()">⚙</button>
+                <button class="side-btn" title="Automatic" onclick="autoEqualization()">🤖</button>
+                <button class="side-btn" title="Current Zero" onclick="currentZero()">⚡</button>
+            </nav>
+        </aside>
 
-</aside>
+        <!-- ================= MAIN ================= -->
+        <div class="app-main">
 
-<main id="main">
+        <!-- ================= TOPBAR ================= -->
+        <header class="topbar">
 
-<!-- ===================== HOME / FRONT PAGE ===================== -->
-<section class="view" id="view-home">
-
-    <div class="home-hero">
-        <h1>EV Testing Guide</h1>
-        <p class="home-sub">Vehicle &amp; component testing workspace &mdash; choose a tool to begin.</p>
-    </div>
-
-    <div class="home-cards">
-        <button class="home-card" data-view="cases">
-            <span class="home-ico">🧪</span>
-            <b>Product &amp; Test Cases</b>
-            <small>Browse products and their test cases</small>
-        </button>
-        <button class="home-card" data-view="pvt">
-            <span class="home-ico">📋</span>
-            <b>Product Validation Test Report</b>
-            <small>Create and export the PVT report</small>
-        </button>
-        <button class="home-card" data-view="rca">
-            <span class="home-ico">🔍</span>
-            <b>RCA Report</b>
-            <small>Root cause analysis report</small>
-        </button>
-    </div>
-
-    <div class="home-backup">
-        <span class="home-backup-lbl">💾 Data backup</span>
-        <button id="backupBtn" type="button" class="home-backup-btn">⬇ Backup all data</button>
-        <button id="restoreBtn" type="button" class="home-backup-btn alt">⬆ Restore backup</button>
-        <input type="file" id="restoreFile" accept=".json,application/json" hidden>
-        <span class="home-backup-hint">Saves every report, RCA and draft to one file (localStorage is cleared if you clear the browser).</span>
-    </div>
-
-</section>
-
-<section class="view" id="view-cases" hidden>
-    <div class="cases-page">
-
-        <h1>🧪 Product &amp; Test Cases</h1>
-        <p class="cases-intro">Enter a product to list its test cases, pick one to get the standard procedure online, download it, and keep the report's Test Procedure in sync.</p>
-        <p class="cases-tip">💡 For the most accurate procedure (like ChatGPT), open <b>Ask AI → ⚙ settings</b> and set the provider to <b>Google Gemini (free)</b> or OpenAI. The built-in free option is faster but less precise.</p>
-
-        <div class="cases-form">
-            <input id="tcProduct" placeholder="Product — e.g. Motor with gear box unit">
-            <button id="tcList" type="button">🔎 List test cases</button>
-        </div>
-
-        <div id="tcCaseList" class="cases-caselist" hidden></div>
-
-        <div id="tcAllRow" class="cases-allrow" hidden>
-            <button id="tcAllBtn" type="button">📄 Show ALL test cases with their standard procedures</button>
-        </div>
-
-        <div class="cases-form">
-            <input id="tcTest" placeholder="Test case — pick one above, or type e.g. IPX7">
-            <button id="tcFetch" type="button">Get standard procedure</button>
-        </div>
-
-        <div id="tcStatus" class="cases-status"></div>
-
-        <div id="tcResultWrap" class="cases-result-wrap" hidden>
-
-            <div class="cases-result-head">
-                <b id="tcTitle">Standard procedure</b>
-                <div class="cases-actions">
-                    <button id="tcRefresh" type="button" title="Check online again">↻ Refresh online</button>
-                    <button id="tcDownload" type="button">⬇ Download (Word)</button>
-                    <label class="tc-sync"><input type="checkbox" id="tcSync"> Auto-update the report</label>
+            <div class="tb-brand">
+                <span class="header-logo-badge">
+                    <img class="header-logo" src="bnc-logo.png" alt="BNC Motors logo">
+                </span>
+                <div class="tb-brand-txt">
+                    <div class="brand-word">BNC MOTORS</div>
+                    <div class="tb-sub">Cell Balancing &amp; Monitoring System</div>
                 </div>
             </div>
 
-            <div id="tcProcedure" class="cases-procedure" contenteditable="true"></div>
-
-            <div class="cases-note">Standard reference: <span id="tcStandard">—</span></div>
-
-        </div>
-
-        <div id="tcAll" class="cases-all" hidden></div>
-
-    </div>
-</section>
-
-<section class="view" id="view-rca" hidden>
-  <div class="rca-page">
-
-    <h1>🔍 RCA Report</h1>
-    <p class="cases-intro">Describe the failure, then generate a full Root Cause Analysis online (8D / 5-Why / Fishbone). Every section stays editable, and you can download the report as Word.</p>
-    <p class="cases-tip">💡 For the most accurate RCA, open <b>Ask AI → ⚙ settings</b> and set the provider to <b>Google Gemini (free)</b> or OpenAI. The built-in free option works but is less precise.</p>
-
-    <!-- ---------- document control ---------- -->
-    <div class="rca-grid">
-      <label>RCA / 8D No.<input id="rcaNo" placeholder="e.g. RCA-2026-014"></label>
-      <label>Revision<input id="rcaRev" placeholder="e.g. 00"></label>
-      <label>Issue date<input id="rcaIssue" placeholder="DD/MM/YYYY"></label>
-      <label>Status<select id="rcaStatus2">
-        <option>Open</option><option>Under investigation</option>
-        <option>Actions implemented</option><option>Closed</option>
-      </select></label>
-    </div>
-
-    <!-- ---------- inputs ---------- -->
-    <div class="rca-grid">
-      <label>Product / Part<input id="rcaProduct" placeholder="e.g. BLDC hub motor"></label>
-      <label>Part / Drawing No.<input id="rcaPartNo" placeholder="e.g. BM-4512"></label>
-      <label>Date of occurrence<input id="rcaDate" placeholder="DD/MM/YYYY"></label>
-      <label>Qty affected / Lot<input id="rcaQty" placeholder="e.g. 12 of 500 (Lot A23)"></label>
-      <label>Detected at<input id="rcaWhere" placeholder="e.g. End-of-line test / Customer"></label>
-      <label>Prepared by<input id="rcaBy" placeholder="Name"></label>
-      <label>Customer / Line<input id="rcaCust" placeholder="e.g. Line 2 / Customer X"></label>
-      <label>Team members (D1)<input id="rcaTeam" placeholder="Name (role), Name (role)…"></label>
-    </div>
-
-    <label class="rca-problem-lbl">Problem / failure description
-      <textarea id="rcaProblem" rows="3" placeholder="e.g. Motor stops after 10 minutes of running; burnt smell from the stator winding. Found on 12 units in lot A23 at end-of-line test."></textarea>
-    </label>
-
-    <!-- ---------- evidence photos ---------- -->
-    <div class="rca-photos-row">
-      <button id="rcaAddPhoto" type="button" class="rca-photo-btn">📷 Add evidence photo</button>
-      <input type="file" id="rcaPhotoFile" accept="image/*" multiple hidden>
-      <span class="rca-photo-hint">Photos appear in section 3, and with <b>Gemini / OpenAI</b> the AI analyses them as visual evidence.</span>
-    </div>
-    <div id="rcaPhotos" class="rca-photos"></div>
-
-    <div class="rca-actions">
-      <button id="rcaSample" type="button" class="rca-sample">🧪 Load sample</button>
-      <button id="rcaGenerate" type="button">✨ Generate RCA (online)</button>
-      <button id="rcaMethod" type="button">📋 Show RCA procedure</button>
-      <button id="rcaDownload" type="button">⬇ Download (Word)</button>
-      <button id="rcaPdf" type="button">📄 Export PDF</button>
-      <button id="rcaPng" type="button">🖼 Diagram (PNG)</button>
-      <button id="rcaSave" type="button">💾 Save RCA</button>
-      <button id="rcaLibrary" type="button">📁 My RCAs</button>
-      <button id="rcaClear" type="button" class="rca-clear">✕ Clear</button>
-    </div>
-
-    <!-- Saved RCA library -->
-    <div id="rcaModal" class="reports-modal" hidden>
-      <div class="reports-box">
-        <div class="reports-head"><span>📁 My RCAs</span>
-          <button type="button" class="reports-x" onclick="document.getElementById('rcaModal').hidden=true">✕</button>
-        </div>
-        <button type="button" class="reports-save" id="rcaSaveInModal">💾 Save the RCA on screen</button>
-        <div id="rcaList" class="reports-list"></div>
-      </div>
-    </div>
-
-    <div id="rcaStatus" class="cases-status"></div>
-
-    <!-- ---------- the standard RCA method (always available, offline) ---------- -->
-    <div id="rcaMethodBox" class="rca-method" hidden></div>
-
-    <!-- ---------- the generated report ---------- -->
-    <div id="rcaReport" class="rca-report" hidden></div>
-
-  </div>
-</section>
-
-<!-- ===================== PRODUCT VALIDATION TEST REPORT ===================== -->
-<section class="view" id="view-pvt" hidden>
-
-<div class="toolbar">
-
-<button id="saveDraft">
-<span class="ico">💾</span>
-Save Draft
-</button>
-
-<button id="loadDraft">
-<span class="ico">📂</span>
-Load Draft
-</button>
-
-<button id="myReports">
-<span class="ico">📁</span>
-My Reports
-</button>
-
-<button id="newReport">
-<span class="ico">🗑️</span>
-New Report
-</button>
-
-<button id="downloadPDF">
-<span class="ico">📄</span>
-Export PDF
-</button>
-
-</div>
-
-<!-- Report tools: watermark + zoom (screen only, never in the PDF). -->
-<div class="report-tools">
-    <span class="rt-lbl">🔖 Watermark</span>
-    <select id="wmSelect">
-        <option value="">None</option>
-        <option value="DRAFT">DRAFT</option>
-        <option value="CONFIDENTIAL">CONFIDENTIAL</option>
-        <option value="FOR REVIEW">FOR REVIEW</option>
-        <option value="APPROVED">APPROVED</option>
-        <option value="CONTROLLED COPY">CONTROLLED COPY</option>
-    </select>
-    <span class="rt-sep"></span>
-    <span class="rt-lbl">🔍 Zoom</span>
-    <button type="button" id="zoomOut" class="rt-btn">−</button>
-    <span id="zoomPct" class="rt-pct">100%</span>
-    <button type="button" id="zoomIn" class="rt-btn">+</button>
-    <button type="button" id="zoomReset" class="rt-btn rt-reset">Reset</button>
-</div>
-
-<!-- Saved reports (each is a full snapshot you can reopen later). -->
-<div id="reportsModal" class="reports-modal" hidden>
-    <div class="reports-box">
-        <div class="reports-head">
-            <span>📁 My Reports</span>
-            <button type="button" class="reports-x" onclick="closeReports()">✕</button>
-        </div>
-        <button type="button" class="reports-save" onclick="saveCurrentReport()">💾 Save the report on screen</button>
-        <div id="reportsList" class="reports-list"></div>
-    </div>
-</div>
-
-<div id="report">
-
-<!-- ================================================================
-     PAGE 1
-================================================================= -->
-
-<div class="page">
-
-<!-- ========================= HEADER ========================= -->
-
-<div class="header-card">
-
-<div class="logo-box">
-
-<img id="companyLogo" src="assets/placeholder.png" alt="">
-
-<input type="file"
-id="logoUpload"
-accept="image/*"
-hidden>
-
-<button
-class="uploadLogoBtn"
-onclick="document.getElementById('logoUpload').click()">
-
-Upload Logo
-
-</button>
-
-<button class="logoAdjustBtn" onclick="logoCropToggle(this)" title="Drag to move, scroll to zoom, double-click to reset">⤢ Adjust</button>
-
-</div>
-
-<div class="title-box">
-
-<h1>PRODUCT VALIDATION TEST REPORT</h1>
-
-</div>
-
-<div class="report-info">
-
-<div>
-
-<label>Doc.Rev.No :</label>
-
-<span
-contenteditable="true"
-id="revision"></span>
-
-</div>
-
-<div>
-
-<label>Report No. :</label>
-
-<span
-contenteditable="true"
-id="reportNo"></span>
-
-</div>
-
-<div>
-
-<label>Report Date :</label>
-
-<span
-contenteditable="true"
-class="date-field"
-data-placeholder="DD/MM/YYYY"
-id="reportDate"></span>
-
-</div>
-
-</div>
-
-</div>
-
-<!-- ========================= PRODUCT DETAILS ========================= -->
-
-<div class="section-card">
-
-<div class="section-title">
-
-<span><span class="ico">📦</span> Product Details</span>
-
-</div>
-
-<div class="grid2">
-
-<div>
-
-<label>Product</label>
-
-<div contenteditable="true"
-id="product"
-class="field"></div>
-
-</div>
-
-<div>
-
-<label>Application</label>
-
-<div contenteditable="true"
-id="application"
-class="field"></div>
-
-</div>
-
-<div>
-
-<label>Supplier</label>
-
-<div contenteditable="true"
-id="supplier"
-class="field"></div>
-
-</div>
-
-<div>
-
-<label>Sample Type</label>
-
-<div contenteditable="true"
-id="sampleType"
-class="field"></div>
-
-</div>
-
-<div>
-
-<label>Drawing / Part No.</label>
-
-<div contenteditable="true"
-id="drawing"
-class="field"></div>
-
-</div>
-
-<div>
-
-<label>No. of Samples</label>
-
-<div contenteditable="true"
-id="samples"
-class="field"></div>
-
-</div>
-
-</div>
-
-</div>
-
-<!-- ========================= TEST DETAILS ========================= -->
-
-<div class="section-card">
-
-<div class="section-title">
-
-<span><span class="ico">🧪</span> Test Details</span>
-
-</div>
-
-<div class="grid2">
-
-<div>
-
-<label>Test Name</label>
-
-<div contenteditable="true"
-id="testName"
-class="field"></div>
-
-</div>
-
-<div>
-
-<label>Standard</label>
-
-<div contenteditable="true"
-id="standard"
-class="field"></div>
-
-</div>
-
-<div>
-
-<label>Start Date</label>
-
-<div contenteditable="true"
-id="startDate"
-data-placeholder="DD/MM/YYYY"
-class="field date-field"></div>
-
-</div>
-
-<div>
-
-<label>End Date</label>
-
-<div contenteditable="true"
-id="endDate"
-data-placeholder="DD/MM/YYYY"
-class="field date-field"></div>
-
-</div>
-
-</div>
-
-</div>
-
-<!-- ========================= TEST OBJECTIVE ========================= -->
-
-<div class="section-card">
-
-<div class="section-title">
-
-<span><span class="ico">🎯</span> Test Objective</span>
-
-<button
-class="auto-btn"
-onclick="autoGenerateField('objective')">
-
-✨ Auto
-
-</button>
-
-</div>
-
-<div
-id="objective"
-contenteditable="true"
-class="editor"></div>
-
-</div>
-
-<!-- ========================= EQUIPMENT ========================= -->
-
-<div class="section-card">
-
-<div class="section-title">
-
-<span><span class="ico">🛠️</span> Test Equipment &amp; Setup</span>
-
-</div>
-
-<div
-id="equipment"
-contenteditable="true"
-class="editor equipment-box"></div>
-
-</div>
-
-<!-- ========================= PROCEDURE ========================= -->
-
-<div class="section-card">
-
-<div class="section-title">
-
-<span><span class="ico">📋</span> Test Procedure</span>
-
-<button
-class="auto-btn"
-onclick="autoGenerateField('procedure')">
-
-✨ Auto
-
-</button>
-
-</div>
-
-<div
-id="procedure"
-contenteditable="true"
-class="editor procedure-box"></div>
-
-</div>
-
-<!-- ========================= TEST PHOTOGRAPHS ========================= -->
-
-<div class="section-card photo-section">
-
-    <div class="section-title">
-
-        <span><span class="ico">📷</span> Test Photographs</span>
-
-        <button class="auto-btn" onclick="addPhoto()">+ Add Photo</button>
-
-    </div>
-
-    <div class="photo-grid">
-
-        <div class="photo-box">
-
-            <h4>Before Test</h4>
-
-            <div class="photo-stage">
-
-                <div
-                    class="photo-caption caption-top"
-                    id="beforeCaptionTop"
-                    contenteditable="true"
-                    data-placeholder="Add a topic for this photograph"></div>
-
-                <div class="upload-area" id="beforeArea">
-
-                    <img id="beforePreview" alt="">
-
-                    <span id="beforePlaceholder"
-                        onclick="photoUploadClick('before')">
-
-                        📷 Click to Upload
-
+            <div class="tb-center">
+                <h1 class="header-title">BMS Dashboard <span class="live-badge"><span class="live-dot"></span>Live</span></h1>
+            </div>
+
+            <div class="tb-right">
+
+                <div class="tb-badge" id="deviceStatusPill">
+                    <span class="tb-badge-ic tb-ic-usb">🔌</span>
+                    <span class="tb-badge-txt">
+                        <span class="tb-badge-top" id="deviceStatusLabel">No Device — No Data</span>
+                        <span class="tb-badge-sub" id="deviceFreshness">Not connected</span>
                     </span>
-
-                    <input
-                        type="file"
-                        id="beforePhoto"
-                        accept="image/*"
-                        hidden>
-
+                    <span class="status-dot disconnected" id="deviceDot"></span>
                 </div>
 
-                <div
-                    class="photo-caption caption-bottom"
-                    id="beforeCaptionBottom"
-                    contenteditable="true"
-                    data-placeholder="Fig 1"></div>
-
-                <canvas id="beforeAnnot" class="photo-annot"
-                    width="800" height="300"></canvas>
-
-                <div class="label-layer" id="beforeLabels"></div>
-
-            </div>
-
-            <div class="photo-toolbar">
-                <button type="button" onclick="photoUploadClick('before')">📁 Photo</button>
-                <button type="button" onclick="photoCropToggle('before',this)">⤢ Crop</button>
-                <button type="button" onclick="photoTool('before','circle',this)">◯ Circle</button>
-                <button type="button" onclick="photoTool('before','arrow',this)">↗ Arrow</button>
-                <button type="button" onclick="addPhotoLabel('before')">A Label</button>
-                <button type="button" onclick="photoUndo('before')">Undo</button>
-                <button type="button" onclick="photoClear('before')">Clear</button>
-            </div>
-
-        </div>
-
-        <div class="photo-box">
-
-            <h4>After Test</h4>
-
-            <div class="photo-stage">
-
-                <div
-                    class="photo-caption caption-top"
-                    id="afterCaptionTop"
-                    contenteditable="true"
-                    data-placeholder="Add a topic for this photograph"></div>
-
-                <div class="upload-area" id="afterArea">
-
-                    <img id="afterPreview" alt="">
-
-                    <span id="afterPlaceholder"
-                        onclick="photoUploadClick('after')">
-
-                        📷 Click to Upload
-
+                <button type="button" id="balancingStatus" class="balancing-status idle tb-badge" title="Balancing status">
+                    <span class="tb-badge-ic tb-ic-bal">⚖</span>
+                    <span class="tb-badge-txt">
+                        <span class="tb-badge-top" id="balancingStatusText">Balancing</span>
+                        <span class="tb-badge-sub" id="balancingStatusSub">Idle</span>
                     </span>
+                </button>
 
-                    <input
-                        type="file"
-                        id="afterPhoto"
-                        accept="image/*"
-                        hidden>
+                <div class="profile">
+                    <span id="profileName"></span>
+                    <button class="logout-btn" onclick="showLogoutConfirm()">⏻ Logout</button>
+                </div>
+
+            </div>
+
+        </header>
+
+        <!-- ================= DASHBOARD GRID ================= -->
+        <div class="main-content">
+
+            <!-- ================= LEFT COLUMN ================= -->
+            <div class="left-column">
+
+                <div class="left-panel card">
+
+                    <!-- Pack number (used in BOTH Real and Automatic modes). The
+                         saved CSV log file is named by this, so each pack's data
+                         goes to its own file. -->
+                    <div class="pack-no-row">
+                        <label for="packNo">🔋 Pack No</label>
+                        <input type="text" id="packNo" placeholder="e.g. 1" maxlength="16" autocomplete="off">
+                    </div>
+
+                    <h2>⚖ BALANCER CONTROL</h2>
+
+                    <!-- Narrow START/STOP on the left with the compact balancing
+                         readout right below them, RUNNING TIME to their right. -->
+                    <div class="control-row">
+
+                        <div class="control-left">
+
+                            <div class="control-buttons">
+                                <button id="startBtn" class="start-btn" onclick="startBMS()">
+                                    <span class="btn-icon">▶</span> START
+                                </button>
+                                <button id="stopBtn" class="stop-btn" onclick="stopBMS()" disabled>
+                                    <span class="btn-icon">■</span> STOP
+                                </button>
+                            </div>
+
+                            <!-- Compact balancing readout, below START/STOP.
+                                 Hidden until balancing starts; filled by updateBalancingDisplay() -->
+                            <div class="balancing-line" id="balancingBox" style="display: none;">
+                                <span id="balancingTitle" class="bal-title">⚖ BALANCING</span>
+                                <span class="balancing-list" id="balancingList"></span>
+                                <span class="balancing-note" id="balancingNote">--</span>
+                            </div>
+
+                        </div>
+
+                        <div class="timer-box">
+                            <h3>RUNNING TIME</h3>
+                            <h2 id="timer">00:00:00</h2>
+                            <p id="liveClock" class="live-clock">--</p>
+
+                            <div class="spinner" id="spinner">
+                                <div></div><div></div><div></div><div></div>
+                                <div></div><div></div><div></div><div></div>
+                            </div>
+
+                            <p id="runningLabel" class="running-label">BMS RUNNING...</p>
+
+                            <!-- Hidden until balancing starts; filled by updateBalancingDisplay() -->
+                            <div class="eta-box" id="etaBox" style="display: none;">
+                                <h3>COMPLETES AT</h3>
+                                <h2 id="balanceEta">--</h2>
+                            </div>
+                        </div>
+
+                    </div>
 
                 </div>
 
-                <div
-                    class="photo-caption caption-bottom"
-                    id="afterCaptionBottom"
-                    contenteditable="true"
-                    data-placeholder="Fig 2"></div>
-
-                <canvas id="afterAnnot" class="photo-annot"
-                    width="800" height="300"></canvas>
-
-                <div class="label-layer" id="afterLabels"></div>
-
-            </div>
-
-            <div class="photo-toolbar">
-                <button type="button" onclick="photoUploadClick('after')">📁 Photo</button>
-                <button type="button" onclick="photoCropToggle('after',this)">⤢ Crop</button>
-                <button type="button" onclick="photoTool('after','circle',this)">◯ Circle</button>
-                <button type="button" onclick="photoTool('after','arrow',this)">↗ Arrow</button>
-                <button type="button" onclick="addPhotoLabel('after')">A Label</button>
-                <button type="button" onclick="photoUndo('after')">Undo</button>
-                <button type="button" onclick="photoClear('after')">Clear</button>
-            </div>
-
-        </div>
-
-    </div>
-
-</div>
-
-
-</div>
-
-<!-- ================================================================
-     PAGE 2
-================================================================= -->
-
-<div class="page">
-
-<!-- ============ REPEATED HEADER (mirrors page 1, read only) ============ -->
-
-<div class="header-card">
-
-<div class="logo-box">
-
-<img id="companyLogo2" src="assets/placeholder.png" alt="">
-
-</div>
-
-<div class="title-box">
-
-<h1>PRODUCT VALIDATION TEST REPORT</h1>
-
-</div>
-
-<div class="report-info">
-
-<div>
-
-<label>Doc.Rev.No :</label>
-
-<span id="revision2"></span>
-
-</div>
-
-<div>
-
-<label>Report No. :</label>
-
-<span id="reportNo2"></span>
-
-</div>
-
-<div>
-
-<label>Report Date :</label>
-
-<span id="reportDate2"></span>
-
-</div>
-
-</div>
-
-</div>
-
-<!-- ====== TEST PHOTOGRAPHS (continued) - added photos land here ====== -->
-
-<div class="section-card photo-section" id="extraPhotoCard" style="display:none">
-
-    <div class="section-title">
-
-        <span><span class="ico">📷</span> Test Photographs</span>
-
-        <button class="auto-btn" onclick="addPhoto()">+ Add Photo</button>
-
-    </div>
-
-    <div id="extraPhotos" class="photo-grid"></div>
-
-</div>
-
-<!-- ========================= OBSERVATION ========================= -->
-
-<div class="section-card" id="observationCard">
-
-    <div class="section-title">
-
-        <span><span class="ico">📝</span> Observation</span>
-
-        <button
-            class="auto-btn"
-            onclick="correctObservation()">
-
-            ✨ Correct English
-
-        </button>
-
-        <button
-            class="auto-btn approval-remove"
-            onclick="removeObservation()">
-
-            ✕ Remove
-
-        </button>
-
-    </div>
-
-    <div
-        id="observation"
-        class="editor observation-box"
-        data-placeholder="Type in English or Tanglish, then press Correct English."
-        contenteditable="true">
-
-    </div>
-
-</div>
-
-<!-- Shown only after Observation is removed, to bring it back. -->
-<div class="table-add-row" id="observationRestore" style="display:none">
-
-    <button type="button" class="table-add-btn" onclick="addObservation()">+ Add Observation section</button>
-
-</div>
-
-<!-- ========================= TEST RESULT ========================= -->
-
-<div class="section-card">
-
-    <div class="section-title">
-
-        <span><span class="ico">✅</span> Test Result</span>
-
-    </div>
-
-    <!-- Written result in a normal sentence -->
-    <div
-        id="resultText"
-        class="editor resulttext-box"
-        contenteditable="true"
-        data-placeholder="Write the test result in a sentence, e.g. After the IPX7 test, no water ingress was observed and the motor functioned normally."></div>
-
-    <!-- Editable data tables (rows/columns you type into, like Excel).
-         Add as many tables as you need with "Add another table". -->
-    <div class="result-table-wrap">
-
-        <div id="resultTables">
-
-            <div class="result-table-block">
-
-                <div
-                    class="table-heading"
-                    contenteditable="true"
-                    data-placeholder="Table heading (optional)"></div>
-
-                <div class="table-tools">
-
-                    <button type="button" onclick="tblAddRow(this)">+ Row</button>
-                    <button type="button" onclick="tblAddColumn(this)">+ Column</button>
-                    <button type="button" onclick="tblDeleteRow(this)">&minus; Row</button>
-                    <button type="button" onclick="tblDeleteColumn(this)">&minus; Column</button>
-                    <button type="button" onclick="tblMergeRight(this)">Merge &rarr;</button>
-                    <button type="button" onclick="tblMergeDown(this)">Merge &darr;</button>
-                    <button type="button" onclick="tblUnmerge(this)">Split</button>
-                    <button type="button" class="tbl-remove" onclick="tblRemove(this)">&times; Remove table</button>
+                <!-- Quick controls -->
+                <div class="tp-row">
+
+                    <div class="bottom-controls">
+                        <button onclick="currentZero()">
+                            <span class="btn-icon">⚡</span> CURRENT ZERO
+                        </button>
+                        <button onclick="equalizationSetting()">
+                            <span class="btn-icon">⚙</span> EQ SETTING
+                        </button>
+                        <button onclick="autoEqualization()">
+                            <span class="btn-icon">🤖</span> AUTOMATIC
+                        </button>
+                        <button onclick="openGraph()">
+                            <span class="btn-icon">📈</span> GRAPH
+                        </button>
+                    </div>
 
                 </div>
 
-                <table class="data-table">
+                <!-- ================= ACTIVITY LOG ================= -->
+                <div class="activity-log card">
 
-                    <tr>
-                        <th contenteditable="true">S.No</th>
-                        <th contenteditable="true">Parameter</th>
-                        <th contenteditable="true">Specification</th>
-                        <th contenteditable="true">Measured Value</th>
-                        <th contenteditable="true">Result</th>
-                    </tr>
+                    <div class="log-header">
+                        <h2>📜 ACTIVITY LOG</h2>
+                        <div class="log-header-actions">
+                            <button type="button" class="log-export-btn" onclick="exportActivityLog()">⬇ Export</button>
+                            <button type="button" class="log-clear-btn" onclick="clearActivityLog()">🗑 Clear</button>
+                        </div>
+                    </div>
 
-                    <tr>
-                        <td contenteditable="true">1</td>
-                        <td contenteditable="true"></td>
-                        <td contenteditable="true"></td>
-                        <td contenteditable="true"></td>
-                        <td contenteditable="true"></td>
-                    </tr>
+                    <div class="log-tabs">
+                        <button type="button" class="log-tab-btn" data-source="Real" onclick="switchLogView('Real')">🔌 Real</button>
+                        <button type="button" class="log-tab-btn" data-source="Automatic" onclick="switchLogView('Automatic')">📊 Automatic</button>
+                    </div>
 
-                    <tr>
-                        <td contenteditable="true">2</td>
-                        <td contenteditable="true"></td>
-                        <td contenteditable="true"></td>
-                        <td contenteditable="true"></td>
-                        <td contenteditable="true"></td>
-                    </tr>
+                    <div class="log-list" id="logList">
+                        <p class="log-empty" id="logEmpty">No activity yet</p>
+                    </div>
 
-                </table>
+                </div>
+
+                <!-- Battery Statistics — compact list, in the left column -->
+                <div id="stats" class="stats-bar card">
+                    <h3>📊 BATTERY STATISTICS</h3>
+
+                    <div class="stats-grid">
+
+                        <div class="stat-item">
+                            <div class="stat-icon icon-high">⬆</div>
+                            <span class="stat-label">MAX CELL VOLT</span>
+                            <span class="stat-sub stat-sub-center" id="maxCellLabel">-</span>
+                            <span class="stat-value high-color" id="maxVoltage">0.000 V</span>
+                        </div>
+
+                        <div class="stat-item">
+                            <div class="stat-icon icon-low">⬇</div>
+                            <span class="stat-label">MIN CELL VOLT</span>
+                            <span class="stat-sub stat-sub-center" id="minCellLabel">-</span>
+                            <span class="stat-value low-color" id="minVoltage">0.000 V</span>
+                        </div>
+
+                        <div class="stat-item">
+                            <div class="stat-icon icon-blue">📈</div>
+                            <span class="stat-label">AVERAGE VOLTAGE</span>
+                            <span class="stat-value blue-color" id="avgVoltage">0.000 V</span>
+                        </div>
+
+                        <div class="stat-item">
+                            <div class="stat-icon icon-amber">△</div>
+                            <span class="stat-label">VOLTAGE DIFFERENCE</span>
+                            <span class="stat-value amber-color" id="diffVoltage">0.000 V</span>
+                        </div>
+
+                        <div class="stat-item">
+                            <div class="stat-icon icon-cyan">⚖</div>
+                            <span class="stat-label">BALANCING CYCLES</span>
+                            <span class="stat-value cyan-color" id="balancingCycles">0</span>
+                            <span class="stat-sub" id="balancingCyclesSub">-</span>
+                        </div>
+
+                        <div class="stat-item">
+                            <div class="stat-icon icon-amber">⚡</div>
+                            <span class="stat-label">BALANCER POWER</span>
+                            <span class="stat-value amber-color" id="balancerPower">0.00 W</span>
+                        </div>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+            <!-- ================= CENTER ================= -->
+            <div class="right-panel dash-center">
+
+                <!-- Top metric cards (real / derived data only) -->
+                <div class="metric-row">
+                    <div class="metric"><div class="metric-ic mi-blue">🔋</div><div class="metric-txt"><div class="metric-label">PACK VOLTAGE</div><div class="metric-val" id="packVoltage">0.00 V</div></div></div>
+                    <div class="metric"><div class="metric-ic mi-cyan">📉</div><div class="metric-txt"><div class="metric-label">CURRENT</div><div class="metric-val" id="packCurrent">0.00 A</div></div></div>
+                    <div class="metric"><div class="metric-ic mi-green">⚡</div><div class="metric-txt"><div class="metric-label">POWER</div><div class="metric-val" id="packPower">0.00 W</div></div></div>
+                    <div class="metric"><div class="metric-ic mi-amber">△</div><div class="metric-txt"><div class="metric-label">SPREAD</div><div class="metric-val" id="packSpread">0.000 V</div></div></div>
+                    <div class="metric"><div class="metric-ic mi-purple">⚖</div><div class="metric-txt"><div class="metric-label">CYCLES</div><div class="metric-val" id="packCycles">0</div></div></div>
+                    <div class="metric"><div class="metric-ic mi-slate">▦</div><div class="metric-txt"><div class="metric-label">CELLS</div><div class="metric-val" id="packCells">16</div></div></div>
+                </div>
+
+                <!-- Battery pack -->
+                <div class="card pack-card">
+                    <div class="pack-head">
+                        <h2>🔋 BATTERY PACK (<span id="packCellsHead">16</span> CELLS)</h2>
+                        <div class="pack-legend">
+                            <span><i class="lg lg-normal"></i>Normal</span>
+                            <span><i class="lg lg-high"></i>High</span>
+                            <span><i class="lg lg-veryhigh"></i>Very High</span>
+                            <span><i class="lg lg-low"></i>Low</span>
+                        </div>
+                    </div>
+                    <div class="pack-frame">
+                        <span class="pf-term pf-minus">−</span>
+                        <span class="pf-knob pf-knob-l"></span>
+                        <div class="pf-rail"></div>
+                        <span class="pf-knob pf-knob-r"></span>
+                        <span class="pf-term pf-plus">+</span>
+                        <div id="cells" class="grid"></div>
+                    </div>
+                </div>
+
+                <!-- Summary cards -->
+                <div class="summary-row">
+                    <div class="summary"><div class="summary-label">Max Cell</div><div class="summary-val high-color" id="sumMax">-</div></div>
+                    <div class="summary"><div class="summary-label">Min Cell</div><div class="summary-val low-color" id="sumMin">-</div></div>
+                    <div class="summary"><div class="summary-label">Avg Cell Voltage</div><div class="summary-val" id="sumAvg">-</div></div>
+                    <div class="summary"><div class="summary-label">Voltage Difference</div><div class="summary-val amber-color" id="sumDiff">-</div></div>
+                    <div class="summary"><div class="summary-label">Health</div><div class="summary-val" id="sumHealth">-</div></div>
+                </div>
+
+                <!-- ================= FULL GRAPH (inline, below the cells) ================= -->
+                <div class="card graph-inline" id="graphInlineCard">
+
+                    <div class="graph-header">
+                        <div class="graph-title">
+                            <div class="graph-title-row">
+                                <h2>📊 Cell Voltage Analysis</h2>
+                                <span class="graph-health gh-none" id="graphHealth">—</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="graph-toolbar">
+                        <div class="graph-tools-left">
+                            <label class="graph-cellpick">
+                                <span>Show</span>
+                                <select id="graphCellSelect" onchange="onCellSelectChange(this.value)">
+                                    <option value="all">All cells</option>
+                                </select>
+                            </label>
+                        </div>
+                        <button type="button" class="graph-export" onclick="exportGraphPNG()">⬇ Save PNG</button>
+                    </div>
+
+                    <div class="graph-cellnav" id="graphCellNav" style="display:none;"></div>
+                    <div class="graph-help" id="graphHelp"></div>
+                    <div class="graph-body" id="graphBody"></div>
+                    <div class="graph-limits" id="graphLimits"></div>
+                    <div class="graph-detail" id="graphDetail">
+                        <span class="gd-hint">Tip: click a bar to see that cell's details</span>
+                    </div>
+
+                </div>
 
             </div>
 
         </div>
 
-        <div class="table-add-row">
-
-            <button type="button" class="table-add-btn" onclick="addResultNote()">+ Add text</button>
-            <button type="button" class="table-add-btn" onclick="addResultTable()">+ Add another table</button>
-
-        </div>
-
-    </div>
-
-</div>
-
-<!-- ========================= RECOMMENDATION ========================= -->
-
-<div class="section-card">
-
-    <div class="section-title">
-
-        <span><span class="ico">💡</span> Recommendation (if any)</span>
-
-    </div>
-
-    <div
-        id="recommendation"
-        class="editor recommendation-box"
-        contenteditable="true">
-
-    </div>
-
-</div>
-
-<!-- ========================= CONCLUSION ========================= -->
-
-<div class="section-card">
-
-    <div class="section-title">
-
-        <span><span class="ico">📑</span> Conclusion</span>
-
-        <button
-            class="auto-btn auto-pass"
-            onclick="autoConclusion('PASS')">
-
-            ✨ Pass
-
-        </button>
-
-        <button
-            class="auto-btn auto-fail"
-            onclick="autoConclusion('FAIL')">
-
-            ✨ Fail
-
-        </button>
-
-    </div>
-
-    <div
-        id="conclusion"
-        class="editor conclusion-box"
-        data-placeholder="Press Pass or Fail to auto-write, or type your own. You can edit this text."
-        contenteditable="true">
-
-    </div>
-
-</div>
-
-<!-- ========================= APPROVAL (optional) ========================= -->
-
-<div class="section-card" id="approvalCard">
-
-    <div class="section-title">
-
-        <span><span class="ico">🖊️</span> Approval</span>
-
-        <button
-            class="auto-btn approval-remove"
-            onclick="removeApproval()">
-
-            ✕ Remove
-
-        </button>
-
-    </div>
-
-    <table class="approval-table">
-
-        <tr>
-
-            <th>Prepared By</th>
-
-            <th>Reviewed By</th>
-
-            <th>Issued By</th>
-
-        </tr>
-
-        <tr>
-
-            <td contenteditable="true"></td>
-
-            <td contenteditable="true"></td>
-
-            <td contenteditable="true"></td>
-
-        </tr>
-
-    </table>
-
-</div>
-
-<!-- Shown only after Approval is removed, to bring it back. -->
-<div class="table-add-row" id="approvalRestore" style="display:none">
-
-    <button type="button" class="table-add-btn" onclick="addApproval()">+ Add Approval section</button>
-
-</div>
-
-</div>
-
-</div>
-
-</section>
-<!-- end #view-pvt -->
-
-</main>
-</div>
-<!-- end #app -->
-
-<!-- ================================================================
-     AI ASSISTANT  (online only; sits outside #report, so it is never
-     part of the exported PDF)
-================================================================= -->
-
-<button id="aiToggle" class="ai-toggle" title="Ask AI about the report">
-    <span class="ico">💬</span> Ask AI
-</button>
-
-<div id="aiPanel" class="ai-panel" aria-hidden="true">
-
-    <div class="ai-header">
-
-        <span class="ai-title"><span class="ico">💬</span> AI Assistant</span>
-
-        <button id="aiDownload" class="ai-icon-btn" title="Download chat">⬇️</button>
-
-        <button id="aiClear" class="ai-icon-btn" title="Clear chat">🗑️</button>
-
-        <button id="aiSettingsBtn" class="ai-icon-btn" title="Settings">⚙️</button>
-
-        <button id="aiClose" class="ai-icon-btn" title="Close">✕</button>
-
-    </div>
-
-    <!-- Advanced settings: choose the AI provider. -->
-    <div id="aiSettings" class="ai-settings" hidden>
-
-        <p class="ai-note">
-            The chat is <b>free</b> and needs no login. For stronger answers you
-            can use your own AI account:
-        </p>
-
-        <label for="aiProvider">AI provider</label>
-        <select id="aiProvider">
-            <option value="free">Free — no key, no login</option>
-            <option value="gemini">Google Gemini — free (Google login, no payment)</option>
-            <option value="openai">OpenAI ChatGPT — paid key</option>
-        </select>
-
-        <div id="aiKeyRow">
-
-            <label for="aiKey">API key</label>
-            <input id="aiKey" type="password" placeholder="paste your key" autocomplete="off">
-
-            <p class="ai-note" id="aiKeyHelp"></p>
-
-            <label for="aiModel">Model (optional)</label>
-            <input id="aiModel" type="text" placeholder="" autocomplete="off">
-
-        </div>
-
-        <button id="aiSaveKey" class="ai-save">Save</button>
-
-        <!-- Free AI account (Puter): sign in once with an email for reliable free
-             answers; change to a different email here any time. -->
-        <div id="puterRow" class="puter-row">
-            <hr>
-            <label>Free AI account (email only — no payment)</label>
-            <p class="ai-note" id="puterStatus">Checking…</p>
-            <div class="puter-btns">
-                <button type="button" id="puterSignIn" class="ai-save">Sign in</button>
-                <button type="button" id="puterChange" class="ai-save" hidden>Change email</button>
-                <button type="button" id="puterSignOut" class="ai-save puter-out" hidden>Sign out</button>
+        <!-- ===== STATUS INDICATORS ===== -->
+        <div class="bottom-bar">
+
+        <!-- ================= STATUS / WARNING INDICATORS ================= -->
+        <div class="status-row">
+
+            <div id="alertPin" class="alert-pin"
+                 title="Watchdog alert pin — reset from Docklight (ALERT PIN NORMAL)">
+                <span class="alert-pin-dot"></span>
+                <span id="alertPinLabel">ALERT PIN : NORMAL</span>
             </div>
+
+            <div id="afeStatus" class="afe-status ok">
+                <span class="afe-dot"></span>
+                <span id="afeStatusLabel">AFE : OK</span>
+            </div>
+
+            <div id="balancerStatus" class="afe-status ok">
+                <span class="afe-dot"></span>
+                <span id="balancerStatusLabel">BALANCER : NORMAL</span>
+            </div>
+
+        </div>
+
+        </div>
+
+        <!-- ================= FOOTER ================= -->
+        <div class="footer">
+            <span>🛡 BMS Dashboard</span>
+            <span>|</span>
+            <span>All Rights Reserved</span>
+            <span>|</span>
+            <span>🕐 <span id="footerClock"></span></span>
+        </div>
+
+        </div><!-- /app-main -->
+
+    </div><!-- /app-shell -->
+
+    <!-- ================= EQUALIZATION MODAL ================= -->
+    <div class="eq-overlay" id="eqOverlay">
+
+        <div class="eq-panel">
+
+            <div class="eq-header">
+
+                <div>
+                    <h2>⚖ Equalization Settings</h2>
+                    <p>Configure balancing thresholds and protection limits — the BMS keeps running in the background</p>
+                </div>
+
+                <button class="eq-close" onclick="closeEqualization()">✕ Close</button>
+
+            </div>
+
+            <div class="eq-main">
+
+                <div class="eq-params">
+
+                    <div class="eq-card">
+                        <h4>Equilibrium Limit Voltage</h4>
+                        <div class="eq-inputs">
+                            <div class="eq-field">
+                                <label for="eqHigh">HIGH</label>
+                                <input type="number" step="0.001" id="eqHigh" value="4.000">
+                                <input type="range" class="bms-slider" id="eqHighSlider" min="3" max="5" step="0.001" value="4.000">
+                            </div>
+                            <div class="eq-field">
+                                <label for="eqLow">LOW</label>
+                                <input type="number" step="0.001" id="eqLow" value="2.450">
+                                <input type="range" class="bms-slider" id="eqLowSlider" min="1" max="4" step="0.001" value="2.450">
+                            </div>
+                        </div>
+                        <button class="eq-setbtn" onclick="save('Equilibrium Limit Voltage','eqHigh','eqLow')">SET</button>
+                    </div>
+
+                    <div class="eq-card">
+                        <h4>Equalizing Starting Voltage</h4>
+                        <p class="eq-desc">Cells above this voltage trigger active balancing</p>
+                        <div class="eq-inputs">
+                            <div class="eq-field">
+                                <label for="startVoltage">LIMIT (V)</label>
+                                <input type="number" step="0.001" id="startVoltage" value="3.650">
+                                <input type="range" class="bms-slider" id="startVoltageSlider" min="3" max="4.5" step="0.001" value="3.650">
+                            </div>
+                        </div>
+                        <button class="eq-setbtn" onclick="save('Equalizing Starting Voltage','startVoltage')">SET</button>
+                    </div>
+
+                    <div class="eq-card">
+                        <h4>Equalizing Differential Voltage</h4>
+                        <p class="eq-desc">Warns when the gap between highest and lowest cell exceeds this</p>
+                        <div class="eq-inputs">
+                            <div class="eq-field">
+                                <label for="diffLimit">LIMIT (V)</label>
+                                <input type="number" step="0.001" id="diffLimit" value="1.5">
+                                <input type="range" class="bms-slider" id="diffLimitSlider" min="0" max="2" step="0.01" value="1.5">
+                            </div>
+                        </div>
+                        <button class="eq-setbtn" onclick="save('Equalizing Differential Voltage','diffLimit')">SET</button>
+                    </div>
+
+                    <div class="eq-card">
+                        <h4>Equalizing Current</h4>
+                        <p class="eq-desc">Bleed current used while actively balancing cells</p>
+                        <div class="eq-inputs">
+                            <div class="eq-field">
+                                <label for="currentLimit">CURRENT (A)</label>
+                                <input type="number" step="0.001" id="currentLimit" value="0">
+                                <input type="range" class="bms-slider" id="currentLimitSlider" min="0" max="10" step="0.01" value="0">
+                            </div>
+                        </div>
+                        <button class="eq-setbtn" onclick="save('Equalizing Current','currentLimit')">SET</button>
+                    </div>
+
+                    <div class="eq-card">
+                        <h4>Balancing ON Time</h4>
+                        <p class="eq-desc">How long the balancer runs before a rest, per cycle (used for the completion estimate)</p>
+                        <div class="eq-inputs">
+                            <div class="eq-field">
+                                <label for="balanceOnTime">ON (s)</label>
+                                <input type="number" step="1" min="1" id="balanceOnTime" value="40">
+                                <input type="range" class="bms-slider" id="balanceOnTimeSlider" min="1" max="600" step="1" value="40">
+                            </div>
+                        </div>
+                        <button class="eq-setbtn" onclick="save('Balancing ON Time','balanceOnTime')">SET</button>
+                    </div>
+
+                    <div class="eq-card">
+                        <h4>Balancing OFF Time</h4>
+                        <p class="eq-desc">Rest gap between balancing runs, per cycle (used for the completion estimate)</p>
+                        <div class="eq-inputs">
+                            <div class="eq-field">
+                                <label for="balanceOffTime">OFF (s)</label>
+                                <input type="number" step="1" min="0" id="balanceOffTime" value="5">
+                                <input type="range" class="bms-slider" id="balanceOffTimeSlider" min="0" max="120" step="1" value="5">
+                            </div>
+                        </div>
+                        <button class="eq-setbtn" onclick="save('Balancing OFF Time','balanceOffTime')">SET</button>
+                    </div>
+
+                    <div class="eq-card">
+                        <h4>Over-Balance Warning Limit</h4>
+                        <p class="eq-desc">Warn when a cell's charge or discharge count reaches this many</p>
+                        <div class="eq-inputs">
+                            <div class="eq-field">
+                                <label for="overBalWarnLimit">COUNT</label>
+                                <input type="number" step="1" min="1" id="overBalWarnLimit" value="10">
+                                <input type="range" class="bms-slider" id="overBalWarnLimitSlider" min="1" max="100" step="1" value="10">
+                            </div>
+                        </div>
+                        <button class="eq-setbtn" onclick="save('Over-Balance Warning Limit','overBalWarnLimit')">SET</button>
+                    </div>
+
+                    <div class="eq-card">
+                        <h4>String Number</h4>
+                        <p class="eq-desc">Number of cells in series — updates the dashboard grid</p>
+                        <div class="eq-inputs">
+                            <div class="eq-field">
+                                <label for="stringCount">CELLS</label>
+                                <input type="number" step="1" min="1" id="stringCount" value="16">
+                                <input type="range" class="bms-slider" id="stringCountSlider" min="1" max="64" step="1" value="16">
+                            </div>
+                        </div>
+                        <button class="eq-setbtn" onclick="applyStringNumber()">SET</button>
+                    </div>
+
+                    <div class="eq-card">
+                        <h4>Monomer Over Voltage Protection</h4>
+                        <p class="eq-desc">Above this, the cell trips and charging is disabled until it recovers</p>
+                        <div class="eq-inputs">
+                            <div class="eq-field">
+                                <label for="ovProtection">LIMIT (V)</label>
+                                <input type="number" step="0.001" id="ovProtection" value="3.800">
+                                <input type="range" class="bms-slider" id="ovProtectionSlider" min="3" max="5" step="0.001" value="3.800">
+                            </div>
+                        </div>
+                        <button class="eq-setbtn" onclick="save('Monomer Over Voltage Protection','ovProtection')">SET</button>
+                    </div>
+
+                    <div class="eq-card">
+                        <h4>Monomer Over Voltage Recovery</h4>
+                        <p class="eq-desc">After a trip, voltage must drop below this before charging resumes</p>
+                        <div class="eq-inputs">
+                            <div class="eq-field">
+                                <label for="ovRecovery">LIMIT (V)</label>
+                                <input type="number" step="0.001" id="ovRecovery" value="3.600">
+                                <input type="range" class="bms-slider" id="ovRecoverySlider" min="3" max="5" step="0.001" value="3.600">
+                            </div>
+                        </div>
+                        <button class="eq-setbtn" onclick="save('Monomer Over Voltage Recovery','ovRecovery')">SET</button>
+                    </div>
+
+                    <div class="eq-card">
+                        <h4>Single Under Voltage Protection</h4>
+                        <p class="eq-desc">Below this, the BMS disconnects the cell to prevent damage</p>
+                        <div class="eq-inputs">
+                            <div class="eq-field">
+                                <label for="uvProtection">LIMIT (V)</label>
+                                <input type="number" step="0.001" id="uvProtection" value="2.750">
+                                <input type="range" class="bms-slider" id="uvProtectionSlider" min="1" max="4" step="0.001" value="2.750">
+                            </div>
+                        </div>
+                        <button class="eq-setbtn" onclick="save('Single Under Voltage Protection','uvProtection')">SET</button>
+                    </div>
+
+                    <div class="eq-card">
+                        <h4>Differential Pressure Protection</h4>
+                        <p class="eq-desc">Trips on excessive cell swelling / gas pressure</p>
+                        <div class="eq-inputs">
+                            <div class="eq-field">
+                                <label for="pressureLimit">LIMIT (kPa)</label>
+                                <input type="number" step="0.001" id="pressureLimit" value="80.000">
+                                <input type="range" class="bms-slider" id="pressureLimitSlider" min="0" max="200" step="0.1" value="80.000">
+                            </div>
+                        </div>
+                        <button class="eq-setbtn" onclick="save('Differential Pressure Protection','pressureLimit')">SET</button>
+                    </div>
+
+                </div>
+
+                <div class="eq-sidebar">
+
+                    <h3>⚙ QUICK ACTIONS</h3>
+
+                    <button class="eq-sidebtn" onclick="currentZero()">
+                        <span class="btn-icon">⚡</span> Current Zero
+                    </button>
+
+                    <button class="eq-sidebtn" onclick="autoEqualization()">
+                        <span class="btn-icon">🤖</span> Automatic Equalization
+                    </button>
+
+                    <button class="eq-sidebtn" onclick="readParameters()">
+                        <span class="btn-icon">📥</span> Read Parameter
+                    </button>
+
+                    <button class="eq-sidebtn" onclick="resetLogFolder()">
+                        <span class="btn-icon">📁</span> Change Log Folder
+                    </button>
+
+                    <button class="eq-sidebtn warn" onclick="restartSystem()">
+                        <span class="btn-icon">↻</span> Restart System
+                    </button>
+
+                </div>
+
+            </div>
+
+            <!-- Saves every Equalization Setting at once and reports
+                 "SAVE OK" to Docklight -->
+            <div class="eq-footer">
+                <button class="eq-savebtn" onclick="saveAllSettings()">
+                    <span class="btn-icon">💾</span> SAVE
+                </button>
+            </div>
+
         </div>
 
     </div>
 
-    <!-- Inline chat: free keyless backend by default, OpenAI if a key exists. -->
-    <div id="aiInline">
+    <!-- ================= LOGOUT CONFIRM OVERLAY ================= -->
+    <div class="logout-overlay" id="logoutOverlay">
 
-        <div id="aiMessages" class="ai-messages"></div>
+        <div class="logout-box">
 
-        <!-- Shows the photo/file you attached before sending. -->
-        <div id="aiAttachBar" class="ai-attach-bar" hidden></div>
+            <div class="logout-icon">⏻</div>
 
-        <div class="ai-input-row">
+            <h3>Log Out?</h3>
 
-            <input type="file" id="aiFile" hidden
-                accept="image/*,.txt,.csv,.tsv,.md,.json,.log,.xml,.yml,.yaml,.ini">
+            <p>You'll need to reconnect your BMS device and enter your passkey again to sign back in.</p>
 
-            <button id="aiAttachBtn" class="ai-attach-btn" title="Attach a photo or file">&#128206;</button>
+            <!-- Shown only when a live device is connected (see showLogoutConfirm). -->
+            <label class="logout-disconnect" id="logoutDisconnectRow" style="display:none;">
+                <input type="checkbox" id="logoutDisconnectChk" checked>
+                <span>Disconnect the live device</span>
+            </label>
 
-            <textarea id="aiInput" rows="1"
-                placeholder="Type your doubt (English or Tanglish) and press Enter..."></textarea>
+            <button type="button" id="confirmLogoutBtn" class="logout-confirm-btn">Yes, Log Out</button>
 
-            <button id="aiSend" class="ai-send" title="Send">&#10148;</button>
+            <button type="button" id="cancelLogoutBtn" class="logout-cancel-btn">Cancel</button>
 
         </div>
 
     </div>
 
-</div>
 
-<!-- Puter.js: free keyless AI for the chatbot (no API key; one-time "Continue
-     as guest" popup on first use). If offline, this simply fails to load and
-     the app keeps working - the chat then uses its offline answers. -->
-<script src="https://js.puter.com/v2/"></script>
-<script src="script.js?v=169"></script>
+    <!-- Shown when the real device drops out mid-session — reconnect or log out -->
+    <div class="logout-overlay" id="disconnectOverlay">
+
+        <div class="logout-box">
+
+            <div class="logout-icon">🔌</div>
+
+            <h3>Device Disconnected</h3>
+
+            <p>The real BMS device was disconnected. Reconnect it to continue, or log out.</p>
+
+            <button type="button" id="reconnectBtn" class="logout-confirm-btn">🔌 Reconnect</button>
+
+            <button type="button" id="disconnectLogoutBtn" class="logout-cancel-btn">⏻ Logout</button>
+
+        </div>
+
+    </div>
+
+    <script src="script.js?v=20260729l"></script>
 
 </body>
 
