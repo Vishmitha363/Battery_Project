@@ -75,6 +75,13 @@ let lastManualPair = null;
 let cellDischargeCount = new Array(CELL_COUNT).fill(0);
 let cellChargeCount = new Array(CELL_COUNT).fill(0);
 
+// Per-cell tallies shown in the Cells popover. These rise on EVERY update a
+// cell is actively charging / discharging (not just once per cycle like the
+// counts above), so each cell's number keeps climbing while it works. Reset
+// to 0 on START; only count while the BMS is running.
+let cellChargeTicks = new Array(CELL_COUNT).fill(0);
+let cellDischargeTicks = new Array(CELL_COUNT).fill(0);
+
 // Timestamp of each cell's last over-balance warning (0 = none yet). The
 // warning repeats every 5 s while the cell stays over the limit.
 let cellOverBalLastWarn = new Array(CELL_COUNT).fill(0);
@@ -2479,16 +2486,21 @@ function createCells() {
 
             <div class="cell-badge" id="cellBadge${i}"></div>
 
-            <span class="cell-num">${i}</span>
+            <span class="cell-num">Cell ${i}</span>
 
             <div class="cell-cyl" id="cellGauge${i}">
-                <span class="cyl-cap"></span>
                 <div class="cell-cyl-body">
-                    <div class="cell-battery-fill" id="cellFill${i}"></div>
-                    <span class="cell-voltage" id="cellVal${i}">0.000</span>
-                    <span class="cyl-unit">V</span>
-                    <span class="cyl-bolt">⚡</span>
+                    <div class="cyl-head">
+                        <span class="cyl-cellno">CELL ${String(i).padStart(2, "0")}</span>
+                        <span class="cyl-status" id="cellStatus${i}">✓ NORMAL</span>
+                    </div>
+                    <div class="cyl-vrow"><span class="cell-voltage" id="cellVal${i}">0.000</span><span class="cyl-unit">V</span></div>
+                    <div class="cyl-scale">
+                        <div class="cyl-track"><div class="cell-battery-fill" id="cellFill${i}"></div></div>
+                        <div class="cyl-ticks"><span>3.0</span><span>3.6</span><span>4.2</span></div>
+                    </div>
                 </div>
+                <span class="cyl-cap cyl-cap-r"></span>
             </div>
 
             <div class="cell-state" id="cellState${i}"></div>
@@ -2955,9 +2967,19 @@ async function startBMS(transmit = true) {
     cellChargedThisCycle = new Array(CELL_COUNT).fill(false);
 
     // Clear any stale per-cell balancing lockout so a fresh session isn't
-    // blocked by a leftover flag. The per-cell counts are NOT reset here —
-    // they accumulate across the day toward the over-balance warning limit.
+    // blocked by a leftover flag.
     balancingLockedOut = false;
+
+    // Per-cell ▼/▲ tallies reset on every START — each run counts from zero
+    // rather than accumulating across the day. Saved so a reload keeps them
+    // zeroed until cells charge/discharge again this run.
+    cellDischargeCount = new Array(CELL_COUNT).fill(0);
+    cellChargeCount = new Array(CELL_COUNT).fill(0);
+
+    // Popover per-cell tallies also start fresh each run.
+    cellChargeTicks = new Array(CELL_COUNT).fill(0);
+    cellDischargeTicks = new Array(CELL_COUNT).fill(0);
+
     saveBalanceStats();
 
     updateBalancingCycleStat();
@@ -3106,6 +3128,10 @@ function liveDataTick() {
     }
 
     applyActiveBalancing();
+
+    // Re-project COMPLETES AT each time balancing enters its IDLE (rest) phase,
+    // using the now-settled max−min cell difference.
+    maybeReestimateOnIdle();
 
     // Compare the actual finish against the estimated COMPLETES AT time and
     // report on-time / late — must run BEFORE finishBalancingIfSettled(), which
@@ -3475,6 +3501,31 @@ function resetBalanceEstimate() {
 
     balanceDeadlineAt = seconds === null ? null : Date.now() + (seconds * 1000);
 
+    // Remember the imbalance this projection was built from, so the idle
+    // re-projection only fires when it moves meaningfully.
+    lastEstimateDiff = cellVoltages.length
+        ? (Math.max(...cellVoltages) - Math.min(...cellVoltages))
+        : null;
+
+}
+
+// The max−min difference the current projection was built from.
+let lastEstimateDiff = null;
+const ESTIMATE_DIFF_STEP = 0.003;   // 3 mV — the "meaningful change" threshold
+
+// Continuously WHILE balancing RESTS (idle), re-project COMPLETES AT from the
+// current max−min cell difference — but only when that difference has moved by
+// at least ESTIMATE_DIFF_STEP, so the time doesn't jump around for tiny changes.
+function maybeReestimateOnIdle() {
+
+    if (!balancingActive || !balancerResting() || !cellVoltages.length) return;
+
+    const diff = Math.max(...cellVoltages) - Math.min(...cellVoltages);
+
+    if (lastEstimateDiff === null || Math.abs(diff - lastEstimateDiff) >= ESTIMATE_DIFF_STEP) {
+        resetBalanceEstimate();   // re-projects and refreshes lastEstimateDiff
+    }
+
 }
 
 // Seconds left on the frozen projection. Never negative: a balance that
@@ -3699,6 +3750,85 @@ function applyActiveBalancing() {
 // RENDER CELL VALUES
 // ======================================
 
+// ---- Scale-to-fill: the dashboard is built at a fixed design width and
+// zoomed to fill each screen's width, so the layout looks identical on any
+// system (a laptop or a 4K), just scaled. Clamped so it never gets absurd. ----
+function fitAppToScreen() {
+    const design = 1700;
+    const vw = document.documentElement.clientWidth || window.innerWidth || design;
+    let z = vw / design;
+    z = Math.min(Math.max(z, 0.72), 2);
+    document.documentElement.style.setProperty("--zoom", z.toFixed(4));
+}
+window.addEventListener("resize", fitAppToScreen);
+window.addEventListener("DOMContentLoaded", fitAppToScreen);
+fitAppToScreen();
+
+// Draw a moving energy-flow arrow from each DISCHARGING cell to the CHARGING
+// (receiver) cell, over the pack — shows the transfer between the pair.
+function renderPackFlow() {
+
+    const svg = document.getElementById("packFlow");
+    if (!svg) return;
+
+    const receiver = cellCharging.findIndex(Boolean);
+    const senders = [];
+    for (let i = 0; i < CELL_COUNT; i++) if (cellBalancing[i]) senders.push(i);
+
+    // Nothing transferring → clear the overlay.
+    if (receiver < 0 || !senders.length) { svg.innerHTML = ""; return; }
+
+    // The app is zoom-scaled, so getBoundingClientRect returns post-zoom pixels;
+    // divide by the zoom to get the SVG's own (pre-zoom) user coordinates.
+    const zoom = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--zoom")) || 1;
+    const host = svg.parentElement.getBoundingClientRect();
+    const rectOf = i => {
+        const el = document.getElementById(`cellGauge${i + 1}`);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        return {
+            cx: (r.left + r.width / 2 - host.left) / zoom,
+            cy: (r.top + r.height / 2 - host.top) / zoom,
+            top: (r.top - host.top) / zoom,
+            bottom: (r.bottom - host.top) / zoom,
+            w: r.width / zoom
+        };
+    };
+
+    const c = rectOf(receiver);
+    if (!c) { svg.innerHTML = ""; return; }
+
+    let paths = "";
+    senders.forEach(sIdx => {
+        const s = rectOf(sIdx);
+        if (!s || sIdx === receiver) return;
+        const dx = Math.abs(c.cx - s.cx);
+        let d;
+        if (dx < s.w * 0.5) {
+            // SAME COLUMN (one cell right above the other) → a straight vertical
+            // arrow in the gap, pointing INTO the charging (receiver) cell.
+            const x = ((s.cx + c.cx) / 2).toFixed(1);
+            const above = c.cy < s.cy;                 // is the receiver above?
+            const y1 = (above ? s.top - 4 : s.bottom + 4);   // start at the donor edge
+            const y2 = (above ? c.bottom + 4 : c.top - 4);   // arrowhead at receiver edge
+            d = `M ${x} ${y1.toFixed(1)} L ${x} ${y2.toFixed(1)}`;
+        } else {
+            // Different columns → arc over the cell tops.
+            const p = { x: s.cx, y: s.top + 6 };
+            const q = { x: c.cx, y: c.top + 6 };
+            const mx = (p.x + q.x) / 2;
+            const my = Math.min(p.y, q.y) - 30 - Math.abs(q.x - p.x) * 0.05;
+            d = `M ${p.x.toFixed(1)} ${p.y.toFixed(1)} Q ${mx.toFixed(1)} ${my.toFixed(1)} ${q.x.toFixed(1)} ${q.y.toFixed(1)}`;
+        }
+        paths += `<path d="${d}" class="pf-flow-base"/>`;
+        paths += `<path d="${d}" class="pf-flow-run" marker-end="url(#pfArrow)"/>`;
+    });
+
+    svg.innerHTML =
+        `<defs><marker id="pfArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto">` +
+        `<path d="M0,0 L10,5 L0,10 z" fill="#111827"/></marker></defs>` + paths;
+}
+
 function renderCells() {
 
     for (let i = 1; i <= CELL_COUNT; i++) {
@@ -3728,14 +3858,32 @@ function renderCells() {
 
         const idx = i - 1;
 
-        // Solid cylinder — colour the whole cell by its voltage LEVEL
-        // (very-high / high / normal / low), like the reference pack.
+        // Colour the whole cell by its voltage LEVEL (very-high / high /
+        // normal / low) — sets the --cc gradient + glow used by the fill.
+        const lvl = cellLevel(i - 1);
         const card0 = document.getElementById(`cellCard${i}`);
         if (card0) {
             card0.classList.remove("lvl-normal", "lvl-high", "lvl-veryhigh", "lvl-low");
-            card0.classList.add("lvl-" + cellLevel(i - 1));
+            card0.classList.add("lvl-" + lvl);
         }
-        if (fill) fill.style.height = "100%";
+        // Scale bar: voltage position on the 3.0–4.2 V range (0–100%).
+        if (fill) {
+            const scalePct = Math.max(2, Math.min(100, ((voltage - 3.0) / 1.2) * 100));
+            fill.style.width = scalePct.toFixed(1) + "%";
+        }
+
+        // Status pill (icon + label), coloured by level via the card class.
+        const st = document.getElementById(`cellStatus${i}`);
+        if (st) {
+            let txt;
+            if (cellOVFault[idx]) txt = "↑ OVER VOLTAGE";
+            else if (cellUVFault[idx]) txt = "↓ UNDER VOLTAGE";
+            else if (lvl === "veryhigh") txt = "↑ VERY HIGH";
+            else if (lvl === "high") txt = "↑ HIGH";
+            else if (lvl === "low") txt = "↓ LOW";
+            else txt = "✓ NORMAL";
+            st.textContent = txt;
+        }
 
         // Direction label under the cell — only for the active pair.
         const state = document.getElementById(`cellState${i}`);
@@ -3806,6 +3954,7 @@ function updateTopMetrics() {
     mirror("packCycles", "balancingCycles");
     set("packCells", CELL_COUNT);
     set("packCellsHead", CELL_COUNT);
+    renderCellStatePop();   // keep the popover counts live while it's open
 
     set("sumMax", "Cell " + (vals.indexOf(max) + 1) + " (" + max.toFixed(3) + " V)");
     set("sumMin", "Cell " + (vals.indexOf(min) + 1) + " (" + min.toFixed(3) + " V)");
@@ -3815,6 +3964,67 @@ function updateTopMetrics() {
     const h = (typeof packHealth === "function") ? packHealth() : { label: "-" };
     set("sumHealth", h.label);
 }
+
+// ======================================
+// CELLS CARD → CHARGING / DISCHARGING POPOVER
+// ======================================
+
+// Fill the popover with the live charging / discharging cell counts + lists.
+// No-op unless the popover is currently open.
+function renderCellStatePop() {
+
+    const pop = document.getElementById("cellStatePop");
+    if (!pop || pop.style.display !== "block") return;
+
+    // One row PER CELL: each cell's own charging and discharging count.
+    // All reset to 0 on START (so 16 cells × 2 = 32 zeros), then each cell's
+    // own count rises as that cell charges / discharges.
+    // A count that reaches the Over-Balance Warning Limit is flagged red.
+    const lim = overBalWarnLimit();
+    let rows = "";
+    for (let i = 0; i < CELL_COUNT; i++) {
+        const chgOver = cellChargeTicks[i] >= lim ? " csp-over" : "";
+        const disOver = cellDischargeTicks[i] >= lim ? " csp-over" : "";
+        rows +=
+            `<tr>` +
+                `<td class="csp-cn">Cell ${i + 1}</td>` +
+                `<td class="csp-count csp-chg-v${chgOver}">${cellChargeTicks[i]}</td>` +
+                `<td class="csp-count csp-dis-v${disOver}">${cellDischargeTicks[i]}</td>` +
+            `</tr>`;
+    }
+
+    // 3 columns: Cells | Charging | Discharging.
+    pop.innerHTML =
+        `<table class="csp-table">` +
+            `<thead><tr>` +
+                `<th>Cells</th>` +
+                `<th class="csp-chg">Charging</th>` +
+                `<th class="csp-dis">Discharging</th>` +
+            `</tr></thead>` +
+            `<tbody>${rows}</tbody>` +
+        `</table>`;
+}
+
+// Open / close the popover when the Cells card is clicked.
+function toggleCellStatePopover(e) {
+
+    if (e) e.stopPropagation();
+    const pop = document.getElementById("cellStatePop");
+    if (!pop) return;
+
+    if (pop.style.display === "block") {
+        pop.style.display = "none";
+    } else {
+        pop.style.display = "block";
+        renderCellStatePop();
+    }
+}
+
+// Click anywhere else closes the popover.
+document.addEventListener("click", function () {
+    const pop = document.getElementById("cellStatePop");
+    if (pop) pop.style.display = "none";
+});
 
 // ======================================
 // HIGHLIGHT HIGH / LOW CELLS
@@ -4335,6 +4545,15 @@ function checkWarnings() {
 
         cellCharging[i] = isCharging;
 
+        // A balancing operation is a PAIR (one cell gives, one receives), so
+        // each new transfer counts +1 for BOTH cells: the discharging cell's
+        // discharge tally AND the receiving cell's charge tally rise together.
+        // Counted once per new discharge start, not every tick.
+        if (running && isBalancing && !wasBalancing) {
+            cellDischargeTicks[i]++;
+            if (receiver >= 0 && receiver !== i) cellChargeTicks[receiver]++;
+        }
+
         if (card) {
 
             card.classList.toggle("uv-fault", cellUVFault[i]);
@@ -4611,6 +4830,9 @@ function checkWarnings() {
     }
 
     if (countsChanged) saveBalanceStats();
+
+    // Draw the energy-flow arrows from each discharging cell → the charging cell.
+    renderPackFlow();
 
     logAlertChanges(alerts);
 
