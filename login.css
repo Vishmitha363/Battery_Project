@@ -815,6 +815,60 @@ font-size:13px;
 
 }
 
+.mode-toggle-row{
+
+display:flex;
+
+gap:8px;
+
+}
+
+.mode-toggle-btn{
+
+flex:1;
+
+padding:10px 12px;
+
+background:transparent;
+
+color:var(--text-dim);
+
+border:1px dashed var(--border);
+
+border-radius:10px;
+
+font-weight:600;
+
+font-size:13px;
+
+font-family:inherit;
+
+cursor:pointer;
+
+transition:.2s;
+
+}
+
+.mode-toggle-btn:hover{
+
+background:#f8fafc;
+
+border-color:#94a3b8;
+
+color:var(--text);
+
+}
+
+.mode-toggle-btn.selected{
+
+background:rgba(22,163,74,.08);
+
+border:1px solid #16a34a;
+
+color:#16a34a;
+
+}
+
 .status-dot{
 
 width:8px;

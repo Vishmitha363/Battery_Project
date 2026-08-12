@@ -342,6 +342,84 @@ body{
 
 }
 
+.balancer-control-head{
+
+    display:flex;
+
+    flex-direction:column;
+
+    align-items:center;
+
+    gap:8px;
+
+}
+
+.balancer-control-head h2{
+
+    margin-bottom:0;
+
+}
+
+.balancer-control-head .mode-toggle-row{
+
+    width:100%;
+
+    max-width:220px;
+
+    margin-bottom:8px;
+
+}
+
+.mode-toggle-row{
+
+    display:flex;
+
+    gap:8px;
+
+}
+
+.mode-toggle-btn{
+
+    flex:1;
+
+    background:var(--navy-900);
+
+    border:1px solid var(--border);
+
+    color:var(--text-dim);
+
+    font-size:11px;
+
+    font-weight:700;
+
+    padding:6px;
+
+    border-radius:8px;
+
+    cursor:pointer;
+
+    transition:.2s;
+
+}
+
+.mode-toggle-btn:hover{
+
+    background:#eef2f8;
+
+    color:var(--text);
+
+}
+
+.mode-toggle-btn.selected{
+
+    background:linear-gradient(135deg,var(--cyan),var(--blue));
+
+    color:#ffffff;
+
+    border-color:transparent;
+
+}
+
 /* ==========================================
    ACTIVITY LOG
 ========================================== */

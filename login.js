@@ -38,6 +38,31 @@ function selectedBaudRate() {
 
 })();
 
+// ==========================================
+// BALANCING MODE — Active (cell-to-cell transfer) or Passive (resistor
+// bleed). Remembered like Baud Rate above, and still changeable later
+// from the dashboard's BALANCER CONTROL panel.
+// ==========================================
+
+const BALANCING_MODE_KEY = "bmsBalancingMode";
+
+function setLoginBalancingMode(mode) {
+
+    localStorage.setItem(BALANCING_MODE_KEY, mode);
+
+    document.getElementById("modeActiveBtn").classList.toggle("selected", mode === "active");
+    document.getElementById("modePassiveBtn").classList.toggle("selected", mode === "passive");
+
+}
+
+// Only needs to act when the saved choice differs from the HTML default
+// (Active, already marked "selected" in the markup).
+(function restoreBalancingMode() {
+
+    if (localStorage.getItem(BALANCING_MODE_KEY) === "passive") setLoginBalancingMode("passive");
+
+})();
+
 // HTML Elements
 const loginForm = document.getElementById("loginForm");
 const loginBtn = document.getElementById("loginBtn");

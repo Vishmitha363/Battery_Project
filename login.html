@@ -98,6 +98,37 @@
 
                 <div class="key-panel" id="keyPanel"></div>
 
+                <!-- Balancing Mode — Active transfers charge cell-to-cell,
+                     Passive bleeds excess off through a resistor. Choice is
+                     remembered like Baud Rate and still changeable later on
+                     the dashboard. -->
+
+                <div class="input-box">
+
+                    <label>Balancing Mode</label>
+
+                    <div class="mode-toggle-row" id="balancingModeToggle">
+
+                        <button
+                            type="button"
+                            class="mode-toggle-btn selected"
+                            id="modeActiveBtn"
+                            onclick="setLoginBalancingMode('active')">
+                            ⚡ ACTIVE
+                        </button>
+
+                        <button
+                            type="button"
+                            class="mode-toggle-btn"
+                            id="modePassiveBtn"
+                            onclick="setLoginBalancingMode('passive')">
+                            🔥 PASSIVE
+                        </button>
+
+                    </div>
+
+                </div>
+
                 <!-- Must match the device's baud rate exactly — a mismatch
                      connects fine but delivers unreadable bytes -->
 

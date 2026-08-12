@@ -106,7 +106,18 @@
                         <input type="text" id="packNo" placeholder="e.g. 1" maxlength="16" autocomplete="off">
                     </div>
 
-                    <h2>⚖ BALANCER CONTROL</h2>
+                    <div class="balancer-control-head">
+
+                        <h2>⚖ <span id="balancerModeHeading">ACTIVE BALANCING</span></h2>
+
+                        <!-- Switching is refused by setBalancingMode() while balancing
+                             is running, so the algorithm never changes mid-transfer. -->
+                        <div class="mode-toggle-row" id="dashModeToggle">
+                            <button type="button" class="mode-toggle-btn selected" id="dashModeActiveBtn" onclick="setBalancingMode('active')">ACTIVE</button>
+                            <button type="button" class="mode-toggle-btn" id="dashModePassiveBtn" onclick="setBalancingMode('passive')">PASSIVE</button>
+                        </div>
+
+                    </div>
 
                     <!-- Narrow START/STOP on the left with the compact balancing
                          readout right below them, RUNNING TIME to their right. -->
