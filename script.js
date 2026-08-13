@@ -304,14 +304,15 @@ let balanceDeadlineAt = null;
 // null when not balancing.
 let balancePhaseStartAt = null;
 
-// Passive mode only: up to 2 concurrent bleed "slots", each independently
-// timed — the two highest over-threshold cells can be mid-burst on
-// different ON durations at once (one closer to the target than the
-// other), which a single shared on/off timer (fine for Active, which only
-// ever drives one cell) cannot represent. null = empty slot. Populated
-// entries look like { cell, phase: "on"|"off", phaseStartAt, phaseDurationS }.
-// Advanced once per tick by advancePassiveSlots().
-let passiveSlots = [null, null];
+// Passive mode only: EVERY cell currently over the Starting Voltage gets its
+// own independently-timed bleed — no cap on how many run at once. Keyed by
+// cell index; entries look like { phase: "on"|"off", phaseStartAt,
+// phaseDurationS }. A cell with no entry here is not currently eligible.
+// Re-evaluated every tick by advancePassiveCellTimers(), which both adds a
+// newly-eligible cell and drops one that has settled — so the set of
+// balancing cells always reflects each cell's CURRENT voltage, not just
+// whichever cells were highest when balancing started.
+let passiveCellTimers = {};
 
 // Fires the "did it finish by the estimated time?" check once per balancing
 // session — the moment the pack actually reaches balanced. Reset on start.
@@ -2818,12 +2819,14 @@ function balancingCellIndices() {
 
     if (cellVoltages.length < 2) return [];
 
-    // Passive: up to 2 cells bleed at once, each on its own timer — the
-    // slots are maintained per-tick by advancePassiveSlots(); this just
-    // reports whichever of them are currently in their ON phase.
+    // Passive: every eligible cell bleeds at once, each on its own timer —
+    // maintained per-tick by advancePassiveCellTimers(); this just reports
+    // whichever of them are currently in their ON phase.
     if (balancingMode === "passive") {
 
-        return passiveSlots.filter(s => s && s.phase === "on").map(s => s.cell);
+        return Object.keys(passiveCellTimers)
+            .map(Number)
+            .filter(i => passiveCellTimers[i].phase === "on");
 
     }
 
@@ -3176,9 +3179,9 @@ function liveDataTick() {
     }
 
     // Must run before applyActiveBalancing()/balancingCellIndices() read
-    // this tick's discharging cells — Passive's up-to-2 slots are decided
-    // here first.
-    advancePassiveSlots();
+    // this tick's discharging cells — Passive's per-cell timers are
+    // decided here first.
+    advancePassiveCellTimers();
 
     applyActiveBalancing();
 
@@ -3305,21 +3308,30 @@ function chargingCellIndex(discharging = balancingCellIndices()) {
     // only a discharging cell, i.e. dissipate rather than transfer).
     if (manualBalancePair) return manualBalancePair.receiver;
 
-    const lowestIndex = cellVoltages.indexOf(Math.min(...cellVoltages));
+    // Real hardware only ever connects a cell to an immediate physical
+    // neighbor — confirmed from a real Docklight trace ("BAL : C6 -> C7",
+    // never the pack's global lowest cell). So the receiver is whichever of
+    // the sender's neighbor(s) reads lower, not Math.min(...cellVoltages)
+    // anywhere in the pack. An end cell (index 0 or CELL_COUNT-1) has only
+    // one neighbor.
+    const sender = discharging[0];
 
-    // A cell cannot both give and receive on the same tick. If the pack
-    // has collapsed to where the lowest cell is itself discharging,
-    // there is no distinct receiver.
-    if (discharging.includes(lowestIndex)) return -1;
+    const neighbors = [sender - 1, sender + 1].filter(i => i >= 0 && i < CELL_COUNT);
+
+    if (!neighbors.length) return -1;
+
+    const receiverIndex = neighbors.reduce((lowest, i) =>
+        cellVoltages[i] < cellVoltages[lowest] ? i : lowest
+    );
 
     // A receiver already at the start voltage is full: applyActiveBalancing()
     // caps it there, so it takes nothing further. Still calling it "charging"
     // would label a cell whose voltage never moves again.
     const startVoltage = parseFloat(document.getElementById("startVoltage").value);
 
-    if (!isNaN(startVoltage) && cellVoltages[lowestIndex] >= startVoltage) return -1;
+    if (!isNaN(startVoltage) && cellVoltages[receiverIndex] >= startVoltage) return -1;
 
-    return lowestIndex;
+    return receiverIndex;
 
 }
 
@@ -3500,20 +3512,23 @@ function estimateBalanceSeconds() {
 
     // Pure balancing time if the balancer ran non-stop.
     //
-    // Passive can run up to 2 cells at once, so it closes the same total
-    // excess in roughly half the single-channel time — a rough approximation,
-    // same spirit as the rest of this estimate, not an exact model of the
-    // 2-slot scheduler.
+    // Passive can run any number of cells at once (no cap), so it closes the
+    // same total excess faster the more cells are currently eligible — a
+    // rough approximation using the CURRENT count, same spirit as the rest
+    // of this estimate, not an exact model of the per-cell scheduler.
+    const passiveConcurrency = Math.max(1, balancingCellIndices().length);
+
     const pureSeconds = balancingMode === "passive"
-        ? (difference / rate) / 2
+        ? (difference / rate) / passiveConcurrency
         : difference / rate;
 
     // 2 & 3. Duty cycle: balance for ON seconds, rest for OFF seconds,
     // repeating (40 s / 5 s from EQ Settings). Add one OFF gap after each full
     // ON block but the last, so the wall-clock finish time includes the rests.
-    // Passive has no single fixed ON time (each slot tapers on its own), so a
+    // Passive has no single fixed ON time (each cell tapers on its own), so a
     // representative burst length is used here — the taper evaluated at the
-    // current highest cell, same formula advancePassiveSlots() uses per slot.
+    // current highest cell, same formula advancePassiveCellTimers() uses per
+    // cell.
     const onS = balancingMode === "passive"
         ? passiveOnSecondsForVoltage(maxV, parseFloat(document.getElementById("startVoltage").value))
         : balanceOnSeconds();
@@ -3549,11 +3564,11 @@ function balanceOffSeconds() {
 //
 // Active mode: unchanged — one shared on/off timer for the single sender,
 // exactly as before. Passive mode: there is no single session-wide rest —
-// each of the (up to 2) slots keeps its own timer, so "resting" here means
-// "nothing is currently bleeding", read straight from passiveSlots rather
-// than balancingCellIndices() (which would recurse into this). A live
-// Docklight-named pair is never treated as resting in Passive mode — the
-// hardware is driving it directly, not the auto-pick duty cycle.
+// every eligible cell keeps its own timer, so "resting" here means
+// "nothing is currently bleeding", read straight from passiveCellTimers
+// rather than balancingCellIndices() (which would recurse into this). A
+// live Docklight-named pair is never treated as resting in Passive mode —
+// the hardware is driving it directly, not the auto-pick scheduler.
 function balancerResting() {
 
     if (!balancingActive) return false;
@@ -3562,7 +3577,7 @@ function balancerResting() {
 
         if (manualBalancePair) return false;
 
-        return !passiveSlots.some(s => s && s.phase === "on");
+        return !Object.values(passiveCellTimers).some(t => t.phase === "on");
 
     }
 
@@ -3584,10 +3599,10 @@ function balancerResting() {
 // Passive mode's ON-burst length for ONE cell: 40s while it's still in the
 // upper half of the gap between the Starting Voltage (the balance target)
 // and the Over-Voltage Protection ceiling (the safety max), tapering
-// linearly down to 10s as it nears the Starting Voltage. Each slot in
-// advancePassiveSlots() evaluates this fresh for its own cell each time a
-// new ON burst begins, which is what makes later bursts shorten as that
-// cell settles. Falls back to a flat 40s if Over-Voltage Protection isn't
+// linearly down to 10s as it nears the Starting Voltage. Each cell's timer
+// in advancePassiveCellTimers() evaluates this fresh each time a new ON
+// burst begins, which is what makes later bursts shorten as that cell
+// settles. Falls back to a flat 40s if Over-Voltage Protection isn't
 // usable as a ceiling (blank, invalid, or not above the Starting Voltage).
 function passiveOnSecondsForVoltage(voltage, startVoltage) {
 
@@ -3607,20 +3622,22 @@ function passiveOnSecondsForVoltage(voltage, startVoltage) {
 
 }
 
-// Advances Passive mode's up-to-2-slot bleed scheduler by one tick. A slot
-// frees the moment its cell settles to the Starting Voltage — matching how
-// Active's single sender drops out the moment it floors — or when its
-// current ON/OFF phase runs out, in which case it flips phase (re-timing
-// the new phase's duration from that cell's CURRENT voltage, so the taper
-// re-evaluates burst by burst). Any slot left empty is filled from the
-// next-highest remaining over-threshold cell not already in the other slot.
+// Advances Passive mode's per-cell bleed timers by one tick. No cap on how
+// many cells run at once — EVERY cell currently over the Starting Voltage
+// gets (or keeps) its own on/off timer, and a cell that drops out of
+// eligibility (voltage overtaken back down to the threshold, i.e. it's
+// settled) loses its timer immediately, exactly like a slot that's no
+// longer needed. This re-checks every cell's CURRENT value every tick, so a
+// cell that only just became the highest (e.g. because another cell
+// finished) is picked up on the very next tick, same as any other newly-
+// eligible cell — there's no "reserved" cell blocking it out.
 // A live Docklight-named pair (manualBalancePair) bypasses this scheduler
 // entirely — the hardware is driving that cell directly.
-function advancePassiveSlots() {
+function advancePassiveCellTimers() {
 
     if (!balancingActive || balancingMode !== "passive" || manualBalancePair || !simulationEnabled) {
 
-        passiveSlots = [null, null];
+        passiveCellTimers = {};
 
         return;
 
@@ -3629,80 +3646,79 @@ function advancePassiveSlots() {
     const startVoltage = parseFloat(document.getElementById("startVoltage").value);
     const now = Date.now();
 
-    for (let slot = 0; slot < 2; slot++) {
+    if (isNaN(startVoltage)) {
 
-        const s = passiveSlots[slot];
+        passiveCellTimers = {};
 
-        if (!s) continue;
+        return;
 
-        if (isNaN(startVoltage) || cellVoltages[s.cell] <= startVoltage) {
+    }
 
-            passiveSlots[slot] = null;
+    for (let i = 0; i < CELL_COUNT; i++) {
+
+        const t = passiveCellTimers[i];
+
+        // No longer above the threshold — settled (or never was eligible).
+        // Drop its timer so it stops being reported as discharging.
+        if (cellVoltages[i] <= startVoltage) {
+
+            if (t) delete passiveCellTimers[i];
 
             continue;
 
         }
 
-        const elapsed = (now - s.phaseStartAt) / 1000;
+        // Newly eligible — start a fresh ON burst timed from its current
+        // voltage.
+        if (!t) {
 
-        if (elapsed < s.phaseDurationS) continue;
+            passiveCellTimers[i] = {
+                phase: "on",
+                phaseStartAt: now,
+                phaseDurationS: passiveOnSecondsForVoltage(cellVoltages[i], startVoltage)
+            };
 
-        if (s.phase === "on") {
+            continue;
+
+        }
+
+        const elapsed = (now - t.phaseStartAt) / 1000;
+
+        if (elapsed < t.phaseDurationS) continue;
+
+        if (t.phase === "on") {
 
             const offS = balanceOffSeconds();
 
             if (offS <= 0) {
 
                 // No configured rest — stay on, just re-time the next burst.
-                s.phaseStartAt = now;
-                s.phaseDurationS = passiveOnSecondsForVoltage(cellVoltages[s.cell], startVoltage);
+                t.phaseStartAt = now;
+                t.phaseDurationS = passiveOnSecondsForVoltage(cellVoltages[i], startVoltage);
 
             } else {
 
-                s.phase = "off";
-                s.phaseStartAt = now;
-                s.phaseDurationS = offS;
+                t.phase = "off";
+                t.phaseStartAt = now;
+                t.phaseDurationS = offS;
 
             }
 
         } else {
 
-            s.phase = "on";
-            s.phaseStartAt = now;
-            s.phaseDurationS = passiveOnSecondsForVoltage(cellVoltages[s.cell], startVoltage);
+            t.phase = "on";
+            t.phaseStartAt = now;
+            t.phaseDurationS = passiveOnSecondsForVoltage(cellVoltages[i], startVoltage);
 
         }
 
     }
 
-    if (isNaN(startVoltage)) return;
+    // Drop any leftover timers for cell indices a String Number resize has
+    // since removed — harmless to skip most ticks, cheap to check.
+    for (const key in passiveCellTimers) {
 
-    const occupied = new Set(passiveSlots.filter(Boolean).map(s => s.cell));
-
-    for (let slot = 0; slot < 2; slot++) {
-
-        if (passiveSlots[slot]) continue;
-
-        let bestIndex = -1, bestV = -Infinity;
-
-        for (let i = 0; i < CELL_COUNT; i++) {
-
-            if (occupied.has(i)) continue;
-            if (cellVoltages[i] <= startVoltage) continue;
-            if (cellVoltages[i] > bestV) { bestV = cellVoltages[i]; bestIndex = i; }
-
-        }
-
-        if (bestIndex === -1) continue;
-
-        passiveSlots[slot] = {
-            cell: bestIndex,
-            phase: "on",
-            phaseStartAt: now,
-            phaseDurationS: passiveOnSecondsForVoltage(bestV, startVoltage)
-        };
-
-        occupied.add(bestIndex);
+        if (Number(key) >= CELL_COUNT) delete passiveCellTimers[key];
 
     }
 
@@ -3922,9 +3938,10 @@ function applyActiveBalancing() {
 
     if (!discharging.length) return;
 
-    // Passive: every discharging cell (up to 2, from advancePassiveSlots())
-    // drains independently, floored at the start voltage. No receiver,
-    // ever — the excess is dissipated through a resistor, not moved.
+    // Passive: every discharging cell (any number, from
+    // advancePassiveCellTimers()) drains independently, floored at the
+    // start voltage. No receiver, ever — the excess is dissipated through
+    // a resistor, not moved.
     if (balancingMode === "passive") {
 
         discharging.forEach(i => {
@@ -4679,6 +4696,7 @@ function checkWarnings() {
     const ovLimit = parseFloat(document.getElementById("ovProtection").value);
     const ovRecovery = parseFloat(document.getElementById("ovRecovery").value);
     const uvLimit = parseFloat(document.getElementById("uvProtection").value);
+    const startVoltage = parseFloat(document.getElementById("startVoltage").value);
 
     const aboveLimit = [];
     const belowLimit = [];
@@ -4763,7 +4781,20 @@ function checkWarnings() {
         if (wasUV && !cellUVFault[i]) logEvent(`✅ Cell ${i + 1} Under-Voltage Recovered`, "success");
 
         if (!wasBalancing && isBalancing) logEvent(`⚖ Cell ${i + 1} Balancing Started`, "info");
-        if (wasBalancing && !isBalancing) logEvent(`✅ Cell ${i + 1} Balancing Successful`, "success");
+
+        // "Balancing" here just means "currently in an ON burst" — it also
+        // goes false for a cell that's merely entering its OFF rest pause
+        // mid-session, not only when it truly finishes. Only call it
+        // "Successful" once the cell has actually settled to the Starting
+        // Voltage; otherwise it's just pausing, so say that instead.
+        if (wasBalancing && !isBalancing) {
+
+            const settled = !isNaN(startVoltage) && v <= startVoltage;
+
+            if (settled) logEvent(`✅ Cell ${i + 1} Balancing Successful`, "success");
+            else logEvent(`⏸ Cell ${i + 1} Balancing Paused — Resting`, "info");
+
+        }
 
         // First participation in this cycle, not every turn it takes.
         if (isBalancing && !cellDischargedThisCycle[i]) {
@@ -5238,6 +5269,20 @@ function setManualBalancePair(sender, receiver) {
 
     }
 
+    // Active mode's hardware only ever connects a cell to an immediate
+    // physical neighbor (confirmed from a real Docklight trace) — a
+    // non-adjacent pair isn't something the board could actually be doing,
+    // so it's refused rather than accepted at face value. The sender can
+    // still dissipate on its own; only the invalid RECEIVER is dropped.
+    if (balancingMode === "active" && receiver !== -1 && Math.abs(receiver - sender) !== 1) {
+
+        showStatus(`⚠ Cell ${sender + 1} -> Cell ${receiver + 1} Refused — Not Adjacent`, "stop");
+        logEvent(`⚠ Balancing Pair Refused — Cell ${sender + 1} And Cell ${receiver + 1} Are Not Neighbors`, "error");
+
+        receiver = -1;
+
+    }
+
     // Sticky receiver: the balancing command repeats every second on a busy
     // byte stream, and one repeat can arrive with its "-> CELLxx" cut off —
     // read as sender-only. That must NOT drop a receiver already set for the
@@ -5379,8 +5424,8 @@ function syncBalancingModeUI() {
 syncBalancingModeUI();
 
 // Switches between Active (cell-to-cell transfer, one pair at a time) and
-// Passive (resistor bleed, no receiver, up to 2 cells at once — see
-// advancePassiveSlots()). Refused while balancing is running so the
+// Passive (resistor bleed, no receiver, any number of cells at once — see
+// advancePassiveCellTimers()). Refused while balancing is running so the
 // algorithm never changes mid-transfer — same "refuse with a clear
 // reason" pattern as the over-balance lockout below.
 function setBalancingMode(mode) {
@@ -5615,7 +5660,7 @@ async function stopBalancing(transmit = true) {
     // Duty-cycle clock ends with the session.
     balancePhaseStartAt = null;
     balanceStartSpread = null;
-    passiveSlots = [null, null];
+    passiveCellTimers = {};
 
     // The per-cell charge/discharge counts are left as they stand at STOP
     // (frozen, not cleared) so the final tally stays on screen — the next
@@ -5750,17 +5795,17 @@ function updateBalancingDisplay() {
 
         list.innerHTML = "";
 
-        // Passive: no single session-wide rest clock — each slot times
+        // Passive: no single session-wide rest clock — each cell times
         // itself independently, so show a countdown to whichever resting
-        // slot resumes soonest (there may be 0, 1, or 2).
+        // cell resumes soonest (there may be any number of them).
         if (balancingMode === "passive") {
 
-            const restingSlots = passiveSlots.filter(s => s && s.phase === "off");
+            const restingCells = Object.values(passiveCellTimers).filter(t => t.phase === "off");
 
-            if (restingSlots.length) {
+            if (restingCells.length) {
 
-                const soonest = Math.min(...restingSlots.map(s =>
-                    Math.max(1, Math.ceil(s.phaseDurationS - (Date.now() - s.phaseStartAt) / 1000))
+                const soonest = Math.min(...restingCells.map(t =>
+                    Math.max(1, Math.ceil(t.phaseDurationS - (Date.now() - t.phaseStartAt) / 1000))
                 ));
 
                 note.innerHTML = `⏸ Resting — resumes in ${soonest}s`;
@@ -5825,7 +5870,7 @@ function updateBalancingDisplay() {
 
     }
 
-    // Passive: list every currently-bleeding cell (up to 2) — never a
+    // Passive: list every currently-bleeding cell (no cap) — never a
     // receiver, since Passive never has one.
     if (balancingMode === "passive") {
 
