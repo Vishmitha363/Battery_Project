@@ -3324,12 +3324,15 @@ function chargingCellIndex(discharging = balancingCellIndices()) {
         cellVoltages[i] < cellVoltages[lowest] ? i : lowest
     );
 
-    // A receiver already at the start voltage is full: applyActiveBalancing()
-    // caps it there, so it takes nothing further. Still calling it "charging"
-    // would label a cell whose voltage never moves again.
-    const startVoltage = parseFloat(document.getElementById("startVoltage").value);
-
-    if (!isNaN(startVoltage) && cellVoltages[receiverIndex] >= startVoltage) return -1;
+    // Charge only ever flows high -> low. If even the lower neighbor isn't
+    // actually below the sender, there's nowhere for it to go — dissipate
+    // instead of "charging" a cell in the wrong direction. (Not gated on
+    // the Starting Voltage threshold itself: with only 1-2 candidate
+    // neighbors to choose from, a neighbor sitting above that threshold is
+    // still a perfectly good receiver as long as it's lower than the
+    // sender — applyActiveBalancing() separately caps how much it can
+    // actually gain, so it can never be pushed higher than the threshold.)
+    if (cellVoltages[receiverIndex] >= cellVoltages[sender]) return -1;
 
     return receiverIndex;
 
@@ -3564,11 +3567,15 @@ function balanceOffSeconds() {
 //
 // Active mode: unchanged — one shared on/off timer for the single sender,
 // exactly as before. Passive mode: there is no single session-wide rest —
-// every eligible cell keeps its own timer, so "resting" here means
-// "nothing is currently bleeding", read straight from passiveCellTimers
-// rather than balancingCellIndices() (which would recurse into this). A
-// live Docklight-named pair is never treated as resting in Passive mode —
-// the hardware is driving it directly, not the auto-pick scheduler.
+// every eligible cell keeps its own timer, so "resting" here means "at
+// least one cell currently has a timer, but none of them are in their ON
+// phase right now" — a genuine, temporary pause. Critically, this is NOT
+// the same as passiveCellTimers being completely EMPTY: an empty set means
+// nothing is eligible at all anymore (the pack finished, or nothing was
+// ever above threshold), which is a real completion finishBalancingIfSettled()
+// needs to see, not a "rest" it should keep waiting through forever. A live
+// Docklight-named pair is never treated as resting in Passive mode — the
+// hardware is driving it directly, not the auto-pick scheduler.
 function balancerResting() {
 
     if (!balancingActive) return false;
@@ -3577,7 +3584,11 @@ function balancerResting() {
 
         if (manualBalancePair) return false;
 
-        return !Object.values(passiveCellTimers).some(t => t.phase === "on");
+        const timers = Object.values(passiveCellTimers);
+
+        if (!timers.length) return false;
+
+        return !timers.some(t => t.phase === "on");
 
     }
 
@@ -3623,14 +3634,22 @@ function passiveOnSecondsForVoltage(voltage, startVoltage) {
 }
 
 // Advances Passive mode's per-cell bleed timers by one tick. No cap on how
-// many cells run at once — EVERY cell currently over the Starting Voltage
-// gets (or keeps) its own on/off timer, and a cell that drops out of
-// eligibility (voltage overtaken back down to the threshold, i.e. it's
-// settled) loses its timer immediately, exactly like a slot that's no
-// longer needed. This re-checks every cell's CURRENT value every tick, so a
-// cell that only just became the highest (e.g. because another cell
-// finished) is picked up on the very next tick, same as any other newly-
-// eligible cell — there's no "reserved" cell blocking it out.
+// many cells run at once — normally EVERY cell currently over the Starting
+// Voltage gets (or keeps) its own on/off timer, and a cell that drops out
+// of eligibility (settled back to the threshold) loses its timer
+// immediately, exactly like a slot that's no longer needed.
+//
+// Two-stage priority: while ANY cell is tripped on Over-Voltage Protection
+// (a genuine safety fault, not just the general "HIGH" indicator),
+// balancing works ONLY on the faulted cell(s) — every other cell, however
+// high, is paused. Only once every cell has recovered out of OV fault does
+// normal balancing (anything above the Starting Voltage) resume. Active
+// mode is unaffected — this staging is Passive-only.
+//
+// This re-checks every cell's CURRENT value/fault state every tick, so a
+// cell that only just became eligible (or ineligible, e.g. a new fault
+// appeared) is picked up on the very next tick — there's no "reserved"
+// cell blocking anything out.
 // A live Docklight-named pair (manualBalancePair) bypasses this scheduler
 // entirely — the hardware is driving that cell directly.
 function advancePassiveCellTimers() {
@@ -3654,13 +3673,22 @@ function advancePassiveCellTimers() {
 
     }
 
+    // Stage gate, computed once for the whole pack: a live OV fault
+    // anywhere restricts eligibility to fault cells only.
+    const anyOverVoltage = cellOVFault.some(Boolean);
+
     for (let i = 0; i < CELL_COUNT; i++) {
 
         const t = passiveCellTimers[i];
 
-        // No longer above the threshold — settled (or never was eligible).
-        // Drop its timer so it stops being reported as discharging.
-        if (cellVoltages[i] <= startVoltage) {
+        const eligible = anyOverVoltage
+            ? cellOVFault[i]
+            : cellVoltages[i] > startVoltage;
+
+        // Not currently eligible — either settled, never qualified, or
+        // paused by the OV-fault stage gate. Drop its timer so it stops
+        // being reported as discharging.
+        if (!eligible) {
 
             if (t) delete passiveCellTimers[i];
 
@@ -4178,7 +4206,13 @@ function cellLevel(i) {
     const max = Math.max(...vals), min = Math.min(...vals);
     const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
 
-    if (vals[i] >= max) return "veryhigh";
+    // "Very high" means genuinely standing out above the pack, not merely
+    // tied for whatever the current max happens to be. Passive balancing
+    // deliberately floors many cells to the SAME target voltage — once
+    // several of them tie for the max, that's the balance succeeding, not
+    // a danger, so it shouldn't paint the whole pack red. Falls through to
+    // "high" below, same threshold that tier already uses.
+    if (vals[i] >= max && vals[i] >= avg + 0.03) return "veryhigh";
     if (vals[i] <= min) return "low";
     if (vals[i] >= avg + 0.03) return "high";
     return "normal";
