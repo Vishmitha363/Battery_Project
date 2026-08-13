@@ -4074,9 +4074,14 @@ function renderCells() {
 
         if (counts) {
 
-            counts.innerHTML =
-                `<span class="count-discharge">▼ ${cellDischargeCount[i - 1]}</span>` +
-                `<span class="count-charge">▲ ${cellChargeCount[i - 1]}</span>`;
+            // Passive never charges a cell (bleed-only, no receiver — see
+            // chargingCellIndex()), so cellChargeCount stays 0 for every
+            // cell always. Showing "▲ 0" next to it would read as "this
+            // could charge" when it never can — count only discharging.
+            counts.innerHTML = balancingMode === "passive"
+                ? `<span class="count-discharge">▼ ${cellDischargeCount[i - 1]}</span>`
+                : `<span class="count-discharge">▼ ${cellDischargeCount[i - 1]}</span>` +
+                  `<span class="count-charge">▲ ${cellChargeCount[i - 1]}</span>`;
 
         }
 
@@ -4212,6 +4217,13 @@ function renderCellStatePop() {
     // own count rises as that cell charges / discharges.
     // A count that reaches the Over-Balance Warning Limit is flagged red.
     const lim = overBalWarnLimit();
+
+    // Passive never charges a cell (bleed-only, no receiver — see
+    // chargingCellIndex()), so cellChargeTicks stays 0 for every cell
+    // always — a whole "Charging" column of zeros would just be clutter.
+    // Count only discharging.
+    const passive = balancingMode === "passive";
+
     let rows = "";
     for (let i = 0; i < CELL_COUNT; i++) {
         const chgOver = cellChargeTicks[i] >= lim ? " csp-over" : "";
@@ -4219,17 +4231,17 @@ function renderCellStatePop() {
         rows +=
             `<tr>` +
                 `<td class="csp-cn">Cell ${i + 1}</td>` +
-                `<td class="csp-count csp-chg-v${chgOver}">${cellChargeTicks[i]}</td>` +
+                (passive ? "" : `<td class="csp-count csp-chg-v${chgOver}">${cellChargeTicks[i]}</td>`) +
                 `<td class="csp-count csp-dis-v${disOver}">${cellDischargeTicks[i]}</td>` +
             `</tr>`;
     }
 
-    // 3 columns: Cells | Charging | Discharging.
+    // 3 columns (Cells | Charging | Discharging) in Active mode, 2 in Passive.
     pop.innerHTML =
         `<table class="csp-table">` +
             `<thead><tr>` +
                 `<th>Cells</th>` +
-                `<th class="csp-chg">Charging</th>` +
+                (passive ? "" : `<th class="csp-chg">Charging</th>`) +
                 `<th class="csp-dis">Discharging</th>` +
             `</tr></thead>` +
             `<tbody>${rows}</tbody>` +
