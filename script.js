@@ -57,6 +57,14 @@ let cellCharging = new Array(CELL_COUNT).fill(false);
 // decides which cells balance. null = the dashboard picks the pair itself.
 let manualBalancePair = null;
 
+// Passive mode's real-hardware equivalent of manualBalancePair — set from a
+// real board's own "BAL CELLS : C02 C08" status report (see
+// detectPassiveBalCellsReport()), 0-based indices, [] when the board
+// reports none currently balancing. null = nothing reported yet (real
+// device Passive shows nothing discharging until the board's first
+// report arrives, same as Active shows nothing until $BALCELL arrives).
+let manualPassiveCells = null;
+
 // True after a STOP, to keep balancing stopped even though Docklight keeps
 // re-sending its balancing command every second. While set, incoming Docklight
 // pairs are ignored so nothing restarts on its own — cleared again by START
@@ -1080,6 +1088,34 @@ function detectPlainBalancingCommand() {
 
 }
 
+// Real Passive hardware reports which cells it's currently balancing
+// directly, as a plain status line — "BAL CELLS : C02 C08" (space-separated
+// "Cnn" labels) or "BAL CELLS : NONE" when idle — the multi-cell equivalent
+// of Active's single-pair "$BALCELL" command, and the counterpart to what
+// formatBalanceReport() sends out in Passive mode. Drives
+// manualPassiveCells so balancingCellIndices() can show the real board's
+// own reported set, instead of the dashboard's own simulated guess (which
+// never applies to genuine real-device data). Only acted on in Passive
+// mode — this line only means something when the board is actually
+// running as a passive balancer.
+function detectPassiveBalCellsReport() {
+
+    if (balancingMode !== "passive") return;
+
+    const match = rawStatusTail.match(/BAL\s*CELLS\s*:\s*(NONE|(?:C\s*\d+\s*)+)/i);
+
+    if (!match) return;
+
+    const listText = match[1];
+
+    manualPassiveCells = /^NONE$/i.test(listText.trim())
+        ? []
+        : Array.from(listText.matchAll(/\d+/g)).map(n => parseInt(n[0], 10) - 1);
+
+    rawStatusTail = rawStatusTail.replace(match[0], "·");
+
+}
+
 // Messages from the board are framed as $...# rather than separated
 // by newlines, e.g.:
 // $CELL01:3500mV,CELL02:3400mV,CELL03:3600mV,CELL04:3600mV,CELL05:3200mV#
@@ -1099,6 +1135,11 @@ function handleRealDeviceChunk(chunk) {
     // stretch of raw input regardless, so the message survives to match.
     rawStatusTail = (rawStatusTail + chunk).slice(-400);
     detectStatusMessages();
+
+    // A real Passive board's own "BAL CELLS : C02 C08" status report — see
+    // detectPassiveBalCellsReport() for why this needs to be separate from
+    // the single-pair parser below.
+    detectPassiveBalCellsReport();
 
     // Balancing commands sent without $...# framing are picked up here, on
     // the same raw buffer, so "BAL : CELL03 -> CELL06" works whether or not
@@ -2810,6 +2851,17 @@ function balancingCellIndices() {
 
     }
 
+    // Real Passive hardware reports its own multi-cell set directly (see
+    // detectPassiveBalCellsReport()) — same priority as manualBalancePair
+    // above, just for Passive's "several cells at once" shape instead of a
+    // single pair. Checked before the general real-device gate below,
+    // which would otherwise always report nothing for a real device.
+    if (!simulationEnabled && balancingMode === "passive" && manualPassiveCells !== null) {
+
+        return manualPassiveCells.filter(i => i >= 0 && i < CELL_COUNT);
+
+    }
+
     // On a REAL device the balancing pair is selected ONLY from Docklight
     // ($BALCELL). The dashboard never auto-picks cells for a real board — so
     // pressing START does not choose a pair; it waits for $BALCELL. (In
@@ -2861,18 +2913,36 @@ function formatBalanceReport() {
     // sends.
     const cellName = index => "CELL" + String(index + 1).padStart(2, "0");
 
-    // Passive's report format is modelled on real 16S passive-balancer
-    // status text — a channel count plus a plain cell list, never an
-    // arrow, since there is never a receiver. Kept entirely separate from
-    // Active's format below so Active's Docklight-side behaviour (and
-    // anything parsing it) is untouched.
+    // Passive's report format matches the real 16S passive-balancer status
+    // text exactly (confirmed against a real Docklight capture): a header
+    // naming the string size, a MAX/MIN/DIFF line, STATE + channel count,
+    // a plain space-separated cell list (never an arrow — there's no
+    // receiver), and the balancer hardware's own fault state. Kept
+    // entirely separate from Active's format below so Active's
+    // Docklight-side behaviour (and anything parsing it) is untouched.
     if (balancingMode === "passive") {
 
+        const maxV = Math.max(...cellVoltages);
+        const minV = Math.min(...cellVoltages);
+        const maxIndex = cellVoltages.indexOf(maxV);
+        const minIndex = cellVoltages.indexOf(minV);
+
+        const faults = [];
+        if (mcp1Failed) faults.push("MCP1");
+        if (mcp2Failed) faults.push("MCP2");
+
+        const balancerLine = faults.length
+            ? `BALANCER : ${faults.join("+")} FAIL`
+            : "BALANCER : NORMAL";
+
         return [
+            `--- ${CELL_COUNT}S PASSIVE BALANCER STATUS ---`,
+            `MAX : ${cellLabel(maxIndex)} = ${toMillivolts(maxV)}mV | MIN : ${cellLabel(minIndex)} = ${toMillivolts(minV)}mV | DIFF : ${toMillivolts(maxV - minV)}mV`,
+            `STATE : ${discharging.length ? "ON" : "IDLE"} | ACTIVE CHANNELS : ${discharging.length}`,
             rule,
-            `STATE : ${discharging.length ? "ACTIVE" : "IDLE"} | ACTIVE CHANNELS : ${discharging.length}`,
-            `BAL CELLS : ${discharging.length ? discharging.map(cellName).join(", ") : "NONE"}`,
-            rule
+            `BAL CELLS : ${discharging.length ? discharging.map(cellLabel).join(" ") : "NONE"}`,
+            rule,
+            balancerLine
         ].join("\r\n") + "\r\n";
 
     }
@@ -5688,6 +5758,7 @@ async function stopBalancing(transmit = true) {
     // Any Docklight-pinned pair ends with the balance — the next start picks
     // fresh, whether it comes from Docklight or the dashboard.
     manualBalancePair = null;
+    manualPassiveCells = null;
 
     balanceDeadlineAt = null;
 
