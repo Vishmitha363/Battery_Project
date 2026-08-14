@@ -3677,29 +3677,33 @@ function balancerResting() {
 
 }
 
-// Passive mode's ON-burst length for ONE cell: 40s while it's still in the
-// upper half of the gap between the Starting Voltage (the balance target)
-// and the Over-Voltage Protection ceiling (the safety max), tapering
-// linearly down to 10s as it nears the Starting Voltage. Each cell's timer
-// in advancePassiveCellTimers() evaluates this fresh each time a new ON
-// burst begins, which is what makes later bursts shorten as that cell
-// settles. Falls back to a flat 40s if Over-Voltage Protection isn't
-// usable as a ceiling (blank, invalid, or not above the Starting Voltage).
+// Passive mode's two-stage ON-burst length for ONE cell — a clean step,
+// not a continuous taper:
+//   Stage 1 (voltage >= Starting Voltage + Starting Voltage/50, i.e. a
+//            fixed 2% margin above the target): 40s ON / configured OFF.
+//   Stage 2 (below that margin, but still above the Starting Voltage):
+//            10s ON / configured OFF.
+// Each cell's timer in advancePassiveCellTimers() evaluates this fresh
+// each time a new ON burst begins, so a cell can start a session in Stage
+// 1 and drop into Stage 2 partway through settling, as its voltage falls.
+function passiveStageBoundary(startVoltage) {
+
+    return startVoltage + (startVoltage / 50);
+
+}
+
+// 1 = still meaningfully above target (40s bursts), 2 = close to target
+// (10s bursts). Used both to pick the burst length and to label which
+// stage a discharging cell is in on the dashboard.
+function passiveStageForVoltage(voltage, startVoltage) {
+
+    return voltage >= passiveStageBoundary(startVoltage) ? 1 : 2;
+
+}
+
 function passiveOnSecondsForVoltage(voltage, startVoltage) {
 
-    const PASSIVE_ON_MAX_S = 40;
-    const PASSIVE_ON_MIN_S = 10;
-    const TAPER_THRESHOLD = 0.5;
-
-    const maxVoltage = parseFloat(document.getElementById("ovProtection").value);
-
-    if (isNaN(startVoltage) || isNaN(maxVoltage) || maxVoltage <= startVoltage) return PASSIVE_ON_MAX_S;
-
-    const fraction = Math.min(1, Math.max(0, (voltage - startVoltage) / (maxVoltage - startVoltage)));
-
-    if (fraction >= TAPER_THRESHOLD) return PASSIVE_ON_MAX_S;
-
-    return PASSIVE_ON_MIN_S + (fraction / TAPER_THRESHOLD) * (PASSIVE_ON_MAX_S - PASSIVE_ON_MIN_S);
+    return passiveStageForVoltage(voltage, startVoltage) === 1 ? 40 : 10;
 
 }
 
@@ -3709,17 +3713,25 @@ function passiveOnSecondsForVoltage(voltage, startVoltage) {
 // of eligibility (settled back to the threshold) loses its timer
 // immediately, exactly like a slot that's no longer needed.
 //
-// Two-stage priority: while ANY cell is tripped on Over-Voltage Protection
-// (a genuine safety fault, not just the general "HIGH" indicator),
-// balancing works ONLY on the faulted cell(s) — every other cell, however
-// high, is paused. Only once every cell has recovered out of OV fault does
-// normal balancing (anything above the Starting Voltage) resume. Active
-// mode is unaffected — this staging is Passive-only.
+// Three-way priority, checked in order — a cell only ever balances at the
+// highest priority level the PACK currently has anything eligible at:
+//   1. OV fault: while ANY cell is tripped on Over-Voltage Protection (a
+//      genuine safety fault, not just the general "HIGH" indicator),
+//      balancing works ONLY on the faulted cell(s) — every other cell,
+//      however high, is paused.
+//   2. Stage 1 (no OV fault, but some cell is still >= the Stage 1/2
+//      boundary — see passiveStageBoundary()): ONLY Stage 1 cells balance.
+//      Stage 2 cells (below the boundary, still above Starting Voltage)
+//      wait their turn.
+//   3. Stage 2 (no OV fault, no cell left in Stage 1): normal — every
+//      remaining cell above the Starting Voltage balances (they're all
+//      Stage 2 by definition at this point).
+// Active mode is unaffected — this staging is Passive-only.
 //
 // This re-checks every cell's CURRENT value/fault state every tick, so a
-// cell that only just became eligible (or ineligible, e.g. a new fault
-// appeared) is picked up on the very next tick — there's no "reserved"
-// cell blocking anything out.
+// cell that only just became eligible (or ineligible, e.g. the last Stage
+// 1 cell just finished) is picked up on the very next tick — there's no
+// "reserved" cell blocking anything out.
 // A live Docklight-named pair (manualBalancePair) bypasses this scheduler
 // entirely — the hardware is driving that cell directly.
 function advancePassiveCellTimers() {
@@ -3743,21 +3755,25 @@ function advancePassiveCellTimers() {
 
     }
 
-    // Stage gate, computed once for the whole pack: a live OV fault
-    // anywhere restricts eligibility to fault cells only.
+    // Stage gates, computed once for the whole pack.
     const anyOverVoltage = cellOVFault.some(Boolean);
+
+    const stage1Boundary = passiveStageBoundary(startVoltage);
+    const anyStage1 = !anyOverVoltage && cellVoltages.some(v => v >= stage1Boundary);
 
     for (let i = 0; i < CELL_COUNT; i++) {
 
         const t = passiveCellTimers[i];
 
-        const eligible = anyOverVoltage
-            ? cellOVFault[i]
-            : cellVoltages[i] > startVoltage;
+        let eligible;
+
+        if (anyOverVoltage) eligible = cellOVFault[i];
+        else if (anyStage1) eligible = cellVoltages[i] >= stage1Boundary;
+        else eligible = cellVoltages[i] > startVoltage;
 
         // Not currently eligible — either settled, never qualified, or
-        // paused by the OV-fault stage gate. Drop its timer so it stops
-        // being reported as discharging.
+        // paused by the OV-fault or Stage 1/2 priority gate above. Drop its
+        // timer so it stops being reported as discharging.
         if (!eligible) {
 
             if (t) delete passiveCellTimers[i];
@@ -5919,9 +5935,14 @@ function updateBalancingDisplay() {
 
             }
 
+            // Real Passive hardware reports its own cells via "BAL CELLS : ..."
+            // (see detectPassiveBalCellsReport()) — NOT $BALCELL, which is
+            // Active's single-pair command and doesn't apply here.
             if (!simulationEnabled) {
 
-                note.innerHTML = "Send $BALCELL from Docklight to select cells";
+                note.innerHTML = manualPassiveCells === null
+                    ? "Waiting for the board's BAL CELLS report"
+                    : "Board reports no cell currently balancing";
 
                 return;
 
@@ -5979,7 +6000,20 @@ function updateBalancingDisplay() {
     // receiver, since Passive never has one.
     if (balancingMode === "passive") {
 
-        title.innerHTML = `⚖ ACTIVE CHANNELS: ${discharging.length}`;
+        // The sequential Stage 1 -> Stage 2 gate in advancePassiveCellTimers()
+        // means every cell currently discharging is always the SAME stage at
+        // once — so the stage is shown once, in the heading, rather than
+        // repeated on every cell's row. Colour-coded (Stage 1 warm/red,
+        // Stage 2 cool/teal) so the two read apart at a glance.
+        const stage = (discharging.length && !isNaN(startVoltage))
+            ? passiveStageForVoltage(cellVoltages[discharging[0]], startVoltage)
+            : null;
+
+        const stageTag = stage === null
+            ? ""
+            : ` <span class="bal-stage bal-stage-${stage}">· STAGE ${stage} (${stage === 1 ? "40s" : "10s"})</span>`;
+
+        title.innerHTML = `⚖ ACTIVE CHANNELS: ${discharging.length}${stageTag}`;
 
         list.innerHTML = discharging
             .map(i => `<span class="bal-dis">▼ Cell ${i + 1} ${cellVoltages[i].toFixed(3)} V</span>`)

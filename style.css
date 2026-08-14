@@ -2659,6 +2659,9 @@ body{
 .balancing-line .bal-dis{ color:#d97706; }
 .balancing-line .bal-chg{ color:#16a34a; }
 .balancing-line .bal-sep{ color:var(--text-dim); }
+.balancing-line .bal-stage{ font-weight:600; white-space:nowrap; font-size:10px; }
+.balancing-line .bal-stage-1{ color:#dc2626; }
+.balancing-line .bal-stage-2{ color:#0d9488; }
 .balancing-line .balancing-note{ display:none; }
 
 .timer-box{
@@ -3730,6 +3733,7 @@ button:disabled{
 .balancing-line .bal-dis,
 .balancing-line .bal-chg,
 .balancing-line .bal-sep,
+.balancing-line .bal-stage,
 .balancing-line .balancing-note{ font-size:12px; }
 
 /* Activity Log */
