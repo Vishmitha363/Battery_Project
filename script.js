@@ -3561,7 +3561,8 @@ function estimateBalanceSeconds() {
     //   1. the Equalizing Current      → how fast a cell drains (the rate)
     //   2. the balancing ON time (40 s) → duty cycle
     //   3. the interval OFF time (5 s)  → duty cycle
-    //   4. the HIGH − LOW cell voltage difference → how much there is to close
+    //   4. the HIGH cell's distance above the Starting Voltage → how much
+    //      there is to close
 
     // 1. Rate the balancer drains at, straight from the Equalizing Current.
     const current = parseFloat(document.getElementById("currentLimit").value);
@@ -3573,13 +3574,22 @@ function estimateBalanceSeconds() {
     if (cellVoltages.length < 2) return null;
 
     const maxV = Math.max(...cellVoltages);
-    const minV = Math.min(...cellVoltages);
 
     // No readings yet (every cell 0 V) — nothing to estimate.
     if (maxV <= 0) return null;
 
-    // 4. The gap between the highest and lowest cell — what balancing closes.
-    const difference = maxV - minV;
+    const startVoltage = parseFloat(document.getElementById("startVoltage").value);
+
+    if (isNaN(startVoltage)) return null;
+
+    // 4. Balancing (either mode) only ever brings the HIGH cell(s) down to
+    // the Starting Voltage — it never raises the low cell to meet them
+    // (Passive can't transfer charge at all; Active's receiver is capped
+    // at the Starting Voltage too). So what's actually being closed is the
+    // highest cell's distance above that target, NOT the pack's max-min
+    // spread — using max-min hugely overstates the time whenever the low
+    // cell sits well below the target, which it usually does.
+    const difference = maxV - startVoltage;
 
     if (difference <= 0) return null;
 
@@ -3603,7 +3613,7 @@ function estimateBalanceSeconds() {
     // current highest cell, same formula advancePassiveCellTimers() uses per
     // cell.
     const onS = balancingMode === "passive"
-        ? passiveOnSecondsForVoltage(maxV, parseFloat(document.getElementById("startVoltage").value))
+        ? passiveOnSecondsForVoltage(maxV, startVoltage)
         : balanceOnSeconds();
 
     const offS = balanceOffSeconds();
@@ -3713,24 +3723,25 @@ function passiveOnSecondsForVoltage(voltage, startVoltage) {
 // of eligibility (settled back to the threshold) loses its timer
 // immediately, exactly like a slot that's no longer needed.
 //
-// Three-way priority, checked in order — a cell only ever balances at the
-// highest priority level the PACK currently has anything eligible at:
-//   1. OV fault: while ANY cell is tripped on Over-Voltage Protection (a
-//      genuine safety fault, not just the general "HIGH" indicator),
-//      balancing works ONLY on the faulted cell(s) — every other cell,
-//      however high, is paused.
-//   2. Stage 1 (no OV fault, but some cell is still >= the Stage 1/2
-//      boundary — see passiveStageBoundary()): ONLY Stage 1 cells balance.
-//      Stage 2 cells (below the boundary, still above Starting Voltage)
-//      wait their turn.
-//   3. Stage 2 (no OV fault, no cell left in Stage 1): normal — every
-//      remaining cell above the Starting Voltage balances (they're all
-//      Stage 2 by definition at this point).
+// Two-stage priority, checked in order — a cell only ever balances at the
+// highest priority level the PACK currently has anything eligible at.
+// Eligibility is based purely on the Equalizing Starting Voltage (and the
+// Stage 1/2 boundary derived from it) — an Over-Voltage-faulted cell is
+// NOT given special exclusive priority; it's just evaluated the same as
+// any other cell by voltage, so it balances ALONGSIDE other Stage 1 cells
+// rather than blocking them. (The red "OVER VOLTAGE" badge itself is
+// unaffected — this only concerns which cells the scheduler picks.)
+//   1. Stage 1 (some cell is still >= the Stage 1/2 boundary — see
+//      passiveStageBoundary()): ONLY Stage 1 cells balance. Stage 2 cells
+//      (below the boundary, still above Starting Voltage) wait their turn.
+//   2. Stage 2 (no cell left in Stage 1): normal — every remaining cell
+//      above the Starting Voltage balances (they're all Stage 2 by
+//      definition at this point).
 // Active mode is unaffected — this staging is Passive-only.
 //
-// This re-checks every cell's CURRENT value/fault state every tick, so a
-// cell that only just became eligible (or ineligible, e.g. the last Stage
-// 1 cell just finished) is picked up on the very next tick — there's no
+// This re-checks every cell's CURRENT value every tick, so a cell that
+// only just became eligible (or ineligible, e.g. the last Stage 1 cell
+// just finished) is picked up on the very next tick — there's no
 // "reserved" cell blocking anything out.
 // A live Docklight-named pair (manualBalancePair) bypasses this scheduler
 // entirely — the hardware is driving that cell directly.
@@ -3755,28 +3766,31 @@ function advancePassiveCellTimers() {
 
     }
 
-    // Stage gates, computed once for the whole pack.
-    const anyOverVoltage = cellOVFault.some(Boolean);
-
+    // Stage gate, computed once for the whole pack.
     const stage1Boundary = passiveStageBoundary(startVoltage);
-    const anyStage1 = !anyOverVoltage && cellVoltages.some(v => v >= stage1Boundary);
+    const anyStage1 = cellVoltages.some(v => v >= stage1Boundary);
 
     for (let i = 0; i < CELL_COUNT; i++) {
 
         const t = passiveCellTimers[i];
 
-        let eligible;
-
-        if (anyOverVoltage) eligible = cellOVFault[i];
-        else if (anyStage1) eligible = cellVoltages[i] >= stage1Boundary;
-        else eligible = cellVoltages[i] > startVoltage;
+        const eligible = anyStage1
+            ? cellVoltages[i] >= stage1Boundary
+            : cellVoltages[i] > startVoltage;
 
         // Not currently eligible — either settled, never qualified, or
-        // paused by the OV-fault or Stage 1/2 priority gate above. Drop its
-        // timer so it stops being reported as discharging.
+        // paused by the Stage 1/2 priority gate above. Drop its timer so
+        // it stops being reported as discharging.
         if (!eligible) {
 
-            if (t) delete passiveCellTimers[i];
+            if (t) {
+
+                // TEMP DIAGNOSTIC — remove once confirmed fixed.
+                console.log(`[passive] Cell ${i + 1}: dropped (no longer eligible) — was ${t.phase}, ${cellVoltages[i].toFixed(3)}V`);
+
+                delete passiveCellTimers[i];
+
+            }
 
             continue;
 
@@ -3786,10 +3800,15 @@ function advancePassiveCellTimers() {
         // voltage.
         if (!t) {
 
+            const duration = passiveOnSecondsForVoltage(cellVoltages[i], startVoltage);
+
+            // TEMP DIAGNOSTIC — remove once confirmed fixed.
+            console.log(`[passive] Cell ${i + 1}: NEW timer, starting ON for ${duration}s at ${cellVoltages[i].toFixed(3)}V (anyStage1=${anyStage1})`);
+
             passiveCellTimers[i] = {
                 phase: "on",
                 phaseStartAt: now,
-                phaseDurationS: passiveOnSecondsForVoltage(cellVoltages[i], startVoltage)
+                phaseDurationS: duration
             };
 
             continue;
@@ -3804,17 +3823,25 @@ function advancePassiveCellTimers() {
 
             const offS = balanceOffSeconds();
 
+            // TEMP DIAGNOSTIC — remove once the Stage 2 rest issue is confirmed
+            // fixed. Open DevTools (F12) -> Console to watch these live.
+            console.log(`[passive] Cell ${i + 1}: ON burst finished after ${elapsed.toFixed(1)}s (limit ${t.phaseDurationS}s) — balanceOffTime field reads ${offS}s`);
+
             if (offS <= 0) {
 
                 // No configured rest — stay on, just re-time the next burst.
                 t.phaseStartAt = now;
                 t.phaseDurationS = passiveOnSecondsForVoltage(cellVoltages[i], startVoltage);
 
+                console.log(`[passive] Cell ${i + 1}: offS<=0, so staying ON with a fresh ${t.phaseDurationS}s burst instead of resting`);
+
             } else {
 
                 t.phase = "off";
                 t.phaseStartAt = now;
                 t.phaseDurationS = offS;
+
+                console.log(`[passive] Cell ${i + 1}: switching to OFF for ${offS}s`);
 
             }
 
@@ -3823,6 +3850,8 @@ function advancePassiveCellTimers() {
             t.phase = "on";
             t.phaseStartAt = now;
             t.phaseDurationS = passiveOnSecondsForVoltage(cellVoltages[i], startVoltage);
+
+            console.log(`[passive] Cell ${i + 1}: OFF finished after ${elapsed.toFixed(1)}s — switching to ON for ${t.phaseDurationS}s`);
 
         }
 
