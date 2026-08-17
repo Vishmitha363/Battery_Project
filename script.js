@@ -2488,6 +2488,12 @@ window.addEventListener("DOMContentLoaded", () => {
     updateFooterClock();
     setInterval(updateFooterClock, 1000);
 
+    // Its own 1s timer, separate from the 1.5s liveDataTick — so the "last
+    // frame Ns ago" counter advances through every whole second (2, 3, 4,
+    // 5...) instead of skipping some numbers, which is what rounding a
+    // 1.5s-spaced sample to the nearest second would otherwise do.
+    setInterval(updateDeviceFreshness, 1000);
+
     // Restore today's running balancing tally before the first render, so
     // a mid-day reload shows the accumulated counts rather than zeros.
     // After loadEqSettings() above, so CELL_COUNT is already correct.
@@ -3255,8 +3261,8 @@ function liveDataTick() {
 
     applyActiveBalancing();
 
-    // Re-project COMPLETES AT each time balancing enters its IDLE (rest) phase,
-    // using the now-settled max−min cell difference.
+    // Re-project COMPLETES AT — see maybeReestimateOnIdle() for exactly
+    // when this actually re-triggers (differs for simulation vs. real).
     maybeReestimateOnIdle();
 
     // Compare the actual finish against the estimated COMPLETES AT time and
@@ -3467,7 +3473,29 @@ function updateDeviceFreshness() {
     // silence is not jitter, it is a board that stopped talking.
     const stale = secondsAgo > (3 * TICK_MS) / 1000;
 
-    el.textContent = `· last frame ${secondsAgo < 1 ? "just now" : Math.round(secondsAgo) + "s ago"}`;
+    // Past a minute, show minutes + seconds ("2m 5s ago") rather than a
+    // long raw second count ("125s ago") that's harder to read at a glance.
+    let ago;
+
+    if (secondsAgo < 1) {
+
+        ago = "just now";
+
+    } else if (secondsAgo < 60) {
+
+        ago = Math.round(secondsAgo) + "s ago";
+
+    } else {
+
+        const totalSeconds = Math.round(secondsAgo);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+
+        ago = `${minutes}m ${seconds}s ago`;
+
+    }
+
+    el.textContent = `· last frame ${ago}`;
 
     el.className = "device-freshness" + (stale ? " stale" : " fresh");
 
@@ -3869,7 +3897,8 @@ function advancePassiveCellTimers() {
 
 // Takes a fresh projection of when the balance will finish. Called at
 // BALANCING START and whenever the Equalizing Current or Starting
-// Voltage changes — never per tick.
+// Voltage changes — never per tick on its own (see maybeReestimateOnIdle()
+// for what re-triggers it).
 function resetBalanceEstimate() {
 
     const seconds = estimateBalanceSeconds();
@@ -3877,25 +3906,46 @@ function resetBalanceEstimate() {
     balanceDeadlineAt = seconds === null ? null : Date.now() + (seconds * 1000);
 
     // Remember the imbalance this projection was built from, so the idle
-    // re-projection only fires when it moves meaningfully.
-    lastEstimateDiff = cellVoltages.length
-        ? (Math.max(...cellVoltages) - Math.min(...cellVoltages))
+    // re-projection only fires when it moves meaningfully. Tracks the same
+    // quantity estimateBalanceSeconds() actually times against — the high
+    // cell's distance above the Starting Voltage — not the max-min spread.
+    const startVoltage = parseFloat(document.getElementById("startVoltage").value);
+
+    lastEstimateDiff = (cellVoltages.length && !isNaN(startVoltage))
+        ? (Math.max(...cellVoltages) - startVoltage)
         : null;
 
 }
 
-// The max−min difference the current projection was built from.
+// The Max-cell-above-Starting-Voltage difference the current projection
+// was built from.
 let lastEstimateDiff = null;
 const ESTIMATE_DIFF_STEP = 0.003;   // 3 mV — the "meaningful change" threshold
 
-// Continuously WHILE balancing RESTS (idle), re-project COMPLETES AT from the
-// current max−min cell difference — but only when that difference has moved by
-// at least ESTIMATE_DIFF_STEP, so the time doesn't jump around for tiny changes.
+// Re-projects COMPLETES AT as new data comes in. For a SIMULATED session,
+// only while the balancer is RESTING (idle) — the dashboard runs its own
+// duty cycle, so mid-burst voltages are moving fast and re-projecting then
+// would make the ETA jump around constantly. For a REAL DEVICE connection
+// there is no dashboard-tracked rest phase to wait for at all (the board
+// runs its own duty cycle, invisible to this scheduler) — so it checks
+// every tick instead. Without this, an estimate that came back null before
+// the very first real cell frame arrived (cellVoltages still all 0 at the
+// moment START was pressed) would stay null forever, since nothing else
+// would ever re-trigger the projection for a real device.
+// Either way, only re-projects when the highest cell's distance above the
+// Starting Voltage has moved by at least ESTIMATE_DIFF_STEP, so the time
+// doesn't jump around for tiny changes.
 function maybeReestimateOnIdle() {
 
-    if (!balancingActive || !balancerResting() || !cellVoltages.length) return;
+    if (!balancingActive || !cellVoltages.length) return;
 
-    const diff = Math.max(...cellVoltages) - Math.min(...cellVoltages);
+    if (simulationEnabled && !balancerResting()) return;
+
+    const startVoltage = parseFloat(document.getElementById("startVoltage").value);
+
+    if (isNaN(startVoltage)) return;
+
+    const diff = Math.max(...cellVoltages) - startVoltage;
 
     if (lastEstimateDiff === null || Math.abs(diff - lastEstimateDiff) >= ESTIMATE_DIFF_STEP) {
         resetBalanceEstimate();   // re-projects and refreshes lastEstimateDiff
