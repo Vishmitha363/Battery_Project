@@ -3811,14 +3811,7 @@ function advancePassiveCellTimers() {
         // it stops being reported as discharging.
         if (!eligible) {
 
-            if (t) {
-
-                // TEMP DIAGNOSTIC — remove once confirmed fixed.
-                console.log(`[passive] Cell ${i + 1}: dropped (no longer eligible) — was ${t.phase}, ${cellVoltages[i].toFixed(3)}V`);
-
-                delete passiveCellTimers[i];
-
-            }
+            if (t) delete passiveCellTimers[i];
 
             continue;
 
@@ -3828,15 +3821,10 @@ function advancePassiveCellTimers() {
         // voltage.
         if (!t) {
 
-            const duration = passiveOnSecondsForVoltage(cellVoltages[i], startVoltage);
-
-            // TEMP DIAGNOSTIC — remove once confirmed fixed.
-            console.log(`[passive] Cell ${i + 1}: NEW timer, starting ON for ${duration}s at ${cellVoltages[i].toFixed(3)}V (anyStage1=${anyStage1})`);
-
             passiveCellTimers[i] = {
                 phase: "on",
                 phaseStartAt: now,
-                phaseDurationS: duration
+                phaseDurationS: passiveOnSecondsForVoltage(cellVoltages[i], startVoltage)
             };
 
             continue;
@@ -3851,25 +3839,17 @@ function advancePassiveCellTimers() {
 
             const offS = balanceOffSeconds();
 
-            // TEMP DIAGNOSTIC — remove once the Stage 2 rest issue is confirmed
-            // fixed. Open DevTools (F12) -> Console to watch these live.
-            console.log(`[passive] Cell ${i + 1}: ON burst finished after ${elapsed.toFixed(1)}s (limit ${t.phaseDurationS}s) — balanceOffTime field reads ${offS}s`);
-
             if (offS <= 0) {
 
                 // No configured rest — stay on, just re-time the next burst.
                 t.phaseStartAt = now;
                 t.phaseDurationS = passiveOnSecondsForVoltage(cellVoltages[i], startVoltage);
 
-                console.log(`[passive] Cell ${i + 1}: offS<=0, so staying ON with a fresh ${t.phaseDurationS}s burst instead of resting`);
-
             } else {
 
                 t.phase = "off";
                 t.phaseStartAt = now;
                 t.phaseDurationS = offS;
-
-                console.log(`[passive] Cell ${i + 1}: switching to OFF for ${offS}s`);
 
             }
 
@@ -3878,8 +3858,6 @@ function advancePassiveCellTimers() {
             t.phase = "on";
             t.phaseStartAt = now;
             t.phaseDurationS = passiveOnSecondsForVoltage(cellVoltages[i], startVoltage);
-
-            console.log(`[passive] Cell ${i + 1}: OFF finished after ${elapsed.toFixed(1)}s — switching to ON for ${t.phaseDurationS}s`);
 
         }
 
