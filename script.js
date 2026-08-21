@@ -1179,7 +1179,6 @@ function handleRealDeviceChunk(chunk) {
 const REMOTE_FIELD_MAP = {
     EQHIGH: "eqHigh",
     EQLOW: "eqLow",
-    STARTVOLTAGE: "startVoltage",
     DIFFLIMIT: "diffLimit",
     CURRENTLIMIT: "currentLimit",
     CELLS: "stringCount",
@@ -2364,7 +2363,7 @@ async function appendRowToDisk(text) {
 // ------------------------------
 
 const EQ_SETTING_IDS = [
-    "eqHigh", "eqLow", "startVoltage", "diffLimit", "currentLimit",
+    "eqHigh", "eqLow", "diffLimit", "currentLimit",
     "stringCount", "ovProtection", "ovRecovery", "uvProtection", "pressureLimit",
     "balanceOnTime", "balanceOffTime", "overBalWarnLimit"
 ];
@@ -2523,6 +2522,18 @@ window.addEventListener("DOMContentLoaded", () => {
     updateStats(false);
 
     setInterval(liveDataTick, TICK_MS);
+
+    // Passive's per-cell ON/OFF phase timers get their own faster interval,
+    // separate from the 1.5s liveDataTick — so a 5s configured break is
+    // detected within ~100ms of the real 5s mark instead of overshooting
+    // to as much as 6.5s (a full liveDataTick period late). This is a poll,
+    // not a precisely-scheduled timer, so a small overshoot (well under a
+    // second) is inherent no matter how tight the interval — this just
+    // shrinks it, it can't reach exactly 0. The actual discharge/voltage
+    // change still only happens on liveDataTick's own cadence via
+    // applyActiveBalancing(); this just keeps the phase (on/off) itself
+    // accurate to the configured duration.
+    setInterval(advancePassiveCellTimers, 100);
 
     // If the BMS device was already granted permission (e.g. the one
     // connected at login), pick it back up automatically here — the
@@ -2843,7 +2854,7 @@ function balancingCellIndices() {
         // empties, finishBalancingIfSettled() never fires, balancingActive
         // stays stuck true, and the drift walk (suppressed while balancing)
         // freezes every Remote value until a $BALSTOP arrives.
-        const startV = parseFloat(document.getElementById("startVoltage").value);
+        const startV = parseFloat(document.getElementById("eqLow").value);
 
         // No threshold set — a simulated balance has no target to settle at,
         // and applyActiveBalancing() moves nothing either. Returning the sender
@@ -2888,7 +2899,7 @@ function balancingCellIndices() {
 
     }
 
-    const startVoltage = parseFloat(document.getElementById("startVoltage").value);
+    const startVoltage = parseFloat(document.getElementById("eqLow").value);
 
     if (isNaN(startVoltage)) return [];
 
@@ -3254,11 +3265,12 @@ function liveDataTick() {
 
     }
 
-    // Must run before applyActiveBalancing()/balancingCellIndices() read
-    // this tick's discharging cells — Passive's per-cell timers are
-    // decided here first.
-    advancePassiveCellTimers();
-
+    // Passive's per-cell phase timers are advanced on their own faster
+    // interval now (see the setInterval near the bootstrap code) so ON/OFF
+    // transitions land close to their configured duration instead of
+    // overshooting by up to a full 1.5s tick. By the time
+    // applyActiveBalancing()/balancingCellIndices() read the discharging
+    // set below, it already reflects the latest phase.
     applyActiveBalancing();
 
     // Re-project COMPLETES AT — see maybeReestimateOnIdle() for exactly
@@ -3606,7 +3618,7 @@ function estimateBalanceSeconds() {
     // No readings yet (every cell 0 V) — nothing to estimate.
     if (maxV <= 0) return null;
 
-    const startVoltage = parseFloat(document.getElementById("startVoltage").value);
+    const startVoltage = parseFloat(document.getElementById("eqLow").value);
 
     if (isNaN(startVoltage)) return null;
 
@@ -3783,7 +3795,7 @@ function advancePassiveCellTimers() {
 
     }
 
-    const startVoltage = parseFloat(document.getElementById("startVoltage").value);
+    const startVoltage = parseFloat(document.getElementById("eqLow").value);
     const now = Date.now();
 
     if (isNaN(startVoltage)) {
@@ -3855,6 +3867,11 @@ function advancePassiveCellTimers() {
 
         } else {
 
+            // TEMP DIAGNOSTIC — fires only once per break (not per-tick), when
+            // a break actually ends, showing how long it really lasted vs.
+            // the configured Balancing OFF Time. Remove once confirmed fixed.
+            console.log(`[break] Cell ${i + 1}: break lasted ${elapsed.toFixed(1)}s (configured ${t.phaseDurationS}s)`);
+
             t.phase = "on";
             t.phaseStartAt = now;
             t.phaseDurationS = passiveOnSecondsForVoltage(cellVoltages[i], startVoltage);
@@ -3887,7 +3904,7 @@ function resetBalanceEstimate() {
     // re-projection only fires when it moves meaningfully. Tracks the same
     // quantity estimateBalanceSeconds() actually times against — the high
     // cell's distance above the Starting Voltage — not the max-min spread.
-    const startVoltage = parseFloat(document.getElementById("startVoltage").value);
+    const startVoltage = parseFloat(document.getElementById("eqLow").value);
 
     lastEstimateDiff = (cellVoltages.length && !isNaN(startVoltage))
         ? (Math.max(...cellVoltages) - startVoltage)
@@ -3919,7 +3936,7 @@ function maybeReestimateOnIdle() {
 
     if (simulationEnabled && !balancerResting()) return;
 
-    const startVoltage = parseFloat(document.getElementById("startVoltage").value);
+    const startVoltage = parseFloat(document.getElementById("eqLow").value);
 
     if (isNaN(startVoltage)) return;
 
@@ -4044,9 +4061,19 @@ function finishBalancingIfSettled() {
 
     if (balancingCellIndices().length) return;
 
+    // TEMP DIAGNOSTIC — one-shot, fires only at the actual completion
+    // decision (not per-tick), so this is safe to leave in briefly. Remove
+    // once the premature-completion issue is confirmed fixed.
+    console.log("[finishBalancingIfSettled] declaring complete —", JSON.stringify({
+        eqLow: parseFloat(document.getElementById("eqLow").value),
+        cellVoltages: cellVoltages.slice(),
+        passiveCellTimers,
+        balancingMode
+    }));
+
     balancingCompletedCount++;
 
-    logEvent("✅ Balancing Complete — All Cells At Starting Voltage", "success");
+    logEvent("✅ Balancing Complete — All Cells At Equilibrium Limit LOW", "success");
     showStatus("✅ Balancing Complete — Auto-Stopped", "success");
 
     // The whole-pack cycle limit was removed. Balancing is now bounded
@@ -4097,7 +4124,7 @@ function applyActiveBalancing() {
     // Balancing switched off at the buttons — no charge moves.
     if (!balancingActive) return;
 
-    const startVoltage = parseFloat(document.getElementById("startVoltage").value);
+    const startVoltage = parseFloat(document.getElementById("eqLow").value);
 
     const perTick = bleedPerTick();
 
@@ -4868,12 +4895,11 @@ function checkWarnings() {
     const banner = document.getElementById("safetyBanner");
 
     const eqHigh = parseFloat(document.getElementById("eqHigh").value);
-    const eqLow = parseFloat(document.getElementById("eqLow").value);
     const diffLimit = parseFloat(document.getElementById("diffLimit").value);
     const ovLimit = parseFloat(document.getElementById("ovProtection").value);
     const ovRecovery = parseFloat(document.getElementById("ovRecovery").value);
     const uvLimit = parseFloat(document.getElementById("uvProtection").value);
-    const startVoltage = parseFloat(document.getElementById("startVoltage").value);
+    const startVoltage = parseFloat(document.getElementById("eqLow").value);
 
     const aboveLimit = [];
     const belowLimit = [];
@@ -4908,9 +4934,14 @@ function checkWarnings() {
         // participation counters read it before the card rendering does.
         const isCharging = i === receiver;
 
-        // Equilibrium Limit Voltage — absolute safe window
+        // Equilibrium Limit Voltage HIGH — absolute safe window (unchanged).
+        // The LOW half of "Below Safe Limit" now comes from Single Under
+        // Voltage Protection instead of Equilibrium LOW, since Equilibrium
+        // LOW also doubles as the balancing threshold now — using it here
+        // too would fire this warning for almost the whole pack any time
+        // it's below a normal balancing target, not just genuinely low cells.
         if (!isNaN(eqHigh) && v > eqHigh) aboveLimit.push(i);
-        if (!isNaN(eqLow) && v < eqLow) belowLimit.push(i);
+        if (!isNaN(uvLimit) && v < uvLimit) belowLimit.push(i);
 
         // Monomer Over Voltage Protection / Recovery
         if (!isNaN(ovLimit) && !cellOVFault[i] && v > ovLimit) {
@@ -5961,7 +5992,7 @@ function updateBalancingDisplay() {
 
     }
 
-    const startVoltage = parseFloat(document.getElementById("startVoltage").value);
+    const startVoltage = parseFloat(document.getElementById("eqLow").value);
 
     const discharging = cellBalancing
         .map((isBalancing, index) => (isBalancing ? index : -1))
@@ -6006,7 +6037,7 @@ function updateBalancingDisplay() {
             }
 
             note.innerHTML = isNaN(startVoltage)
-                ? "Set an Equalizing Starting Voltage"
+                ? "Set Equilibrium Limit Voltage LOW"
                 : bleedPerTick() <= 0
                     ? "Set an Equalizing Current"
                     : `No cell above ${startVoltage.toFixed(3)} V`;
@@ -6044,7 +6075,7 @@ function updateBalancingDisplay() {
         // three different fixes. Collapsing them into one message sends you
         // looking in the wrong place.
         note.innerHTML = isNaN(startVoltage)
-            ? "Set an Equalizing Starting Voltage"
+            ? "Set Equilibrium Limit Voltage LOW"
             : bleedPerTick() <= 0
                 ? "Set an Equalizing Current"
                 : `No cell above ${startVoltage.toFixed(3)} V`;
@@ -6393,7 +6424,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     bindSlider("eqHigh", "eqHighSlider");
     bindSlider("eqLow", "eqLowSlider");
-    bindSlider("startVoltage", "startVoltageSlider");
     bindSlider("diffLimit", "diffLimitSlider");
     bindSlider("currentLimit", "currentLimitSlider");
     bindSlider("stringCount", "stringCountSlider");
@@ -7425,7 +7455,7 @@ function renderGraph() {
     if (limEl) {
         const ov = parseFloat(document.getElementById("ovProtection")?.value);
         const uv = parseFloat(document.getElementById("uvProtection")?.value);
-        const startv = parseFloat(document.getElementById("startVoltage")?.value);
+        const startv = parseFloat(document.getElementById("eqLow")?.value);
         const val = v => isNaN(v) ? "—" : v.toFixed(3) + " V";
         const chip = (col, name, v) =>
             `<span class="glim-chip"><span class="glim-dot" style="background:${col}"></span>` +
@@ -7991,7 +8021,7 @@ function renderGraph() {
             shown.forEach((i, slot) => { slotOfL[i] = slot; });
 
             const shownV = shown.map(i => values[i]);
-            const startV = parseFloat(document.getElementById("startVoltage")?.value);
+            const startV = parseFloat(document.getElementById("eqLow")?.value);
             const ovV = parseFloat(document.getElementById("ovProtection")?.value);
             const uvV = parseFloat(document.getElementById("uvProtection")?.value);
 
