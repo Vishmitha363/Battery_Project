@@ -3050,8 +3050,8 @@ async function startBMS(transmit = true) {
 
     // START drives the balancer, and the balancer moves charge using the
     // Equalizing Current. At 0 A there is nothing to run — refuse the whole
-    // session here so it never even shows "BMS RUNNING…", rather than starting
-    // the session and only silently skipping the balance.
+    // session here so it never even shows "BALANCING RUNNING…", rather than
+    // starting the session and only silently skipping the balance.
     const eqCurrent = parseFloat(document.getElementById("currentLimit").value);
 
     if (isNaN(eqCurrent) || eqCurrent <= 0) {
