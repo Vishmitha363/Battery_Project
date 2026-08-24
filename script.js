@@ -530,7 +530,7 @@ let deviceConnectedAt = null;
 // arrived before but stopped) means the link is dead even though the port
 // is still technically open — zero the cells and ask the operator to
 // reconnect rather than leave stale/frozen readings on screen forever.
-const CELL_FRAME_TIMEOUT_MS = 15000;
+const CELL_FRAME_TIMEOUT_MS = 30000;
 let cellFrameTimeoutTriggered = false;
 
 // The ALERT PIN indicator: green (normal) until the board's watchdog
@@ -1840,6 +1840,15 @@ let currentLogDataSource = null;
 let currentLogPack = null;
 let logQueue = Promise.resolve();
 
+// The folder picker only lets the operator choose a PARENT location
+// (Documents, Desktop, ...) — browsers give no way to jump straight to an
+// arbitrary path or create one without that one user gesture. Once they've
+// picked a parent, a dedicated subfolder with this fixed name is created
+// (or reused) inside it automatically, so logs always land somewhere
+// consistent instead of loose in whatever folder was picked, or depending
+// on the operator having made that folder themselves beforehand.
+const LOG_SUBFOLDER_NAME = "BNC_BMS_Logs";
+
 // The pack number typed into the dashboard (real-device use). It is baked into
 // the CSV filename so every pack's readings are saved to their own file.
 // Sanitised to safe filename characters.
@@ -2032,9 +2041,12 @@ async function ensureLogDir() {
 
         }
 
-        // First time ever (or permission was lost) — ask once and
-        // remember the folder for every run from now on.
-        logDirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+        // First time ever (or permission was lost) — ask once where to
+        // create it, then create/reuse the dedicated BNC_BMS_Logs subfolder
+        // there automatically. Remembered for every run from now on.
+        const parent = await window.showDirectoryPicker({ mode: "readwrite" });
+
+        logDirHandle = await parent.getDirectoryHandle(LOG_SUBFOLDER_NAME, { create: true });
 
         await saveHandleToDB(logDirHandle);
 
@@ -2122,8 +2134,12 @@ async function resetLogFolder() {
 
     try {
 
-        // Ask where to store — this is the whole point of the button.
-        logDirHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+        // Ask where to store — this is the whole point of the button. The
+        // dedicated BNC_BMS_Logs subfolder is created/reused inside
+        // whatever parent is picked, same as ensureLogDir().
+        const parent = await window.showDirectoryPicker({ mode: "readwrite" });
+
+        logDirHandle = await parent.getDirectoryHandle(LOG_SUBFOLDER_NAME, { create: true });
 
         await saveHandleToDB(logDirHandle);
 
@@ -6440,7 +6456,22 @@ async function reconnectRealDevice() {
 
     }
 
-    if (await connectToPort(chosen)) {
+    // The OS can take a moment to fully release the port right after a
+    // disconnect (com0com virtual pairs especially) — a reconnect attempted
+    // in that window fails with "in use" even though nothing else is
+    // actually holding it. Retry a couple of times with a short pause
+    // before reporting failure, instead of giving up on the first try.
+    let opened = false;
+
+    for (let attempt = 1; attempt <= 3 && !opened; attempt++) {
+
+        opened = await connectToPort(chosen);
+
+        if (!opened && attempt < 3) await new Promise(r => setTimeout(r, 500));
+
+    }
+
+    if (opened) {
 
         hideDisconnectModal();
 
