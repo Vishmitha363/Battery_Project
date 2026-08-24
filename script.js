@@ -5757,8 +5757,10 @@ function setManualBalancePair(sender, receiver) {
     // Show and project the completion time (COMPLETES AT) for this pair — the
     // Docklight-driven path and the START-resumes-pair path both come through
     // here, so the ETA has to be set up here too, not only in startBalancing().
+    // No ETA in Passive mode, same as startBalancing() — the estimate isn't
+    // reliable there given concurrency, staging, and per-cell tapers.
     const etaBox = document.getElementById("etaBox");
-    if (etaBox) etaBox.style.display = "block";
+    if (etaBox) etaBox.style.display = balancingMode === "passive" ? "none" : "block";
 
     resetBalanceEstimate();
 
