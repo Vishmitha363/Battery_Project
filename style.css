@@ -2659,9 +2659,6 @@ body{
 .balancing-line .bal-dis{ color:#d97706; }
 .balancing-line .bal-chg{ color:#16a34a; }
 .balancing-line .bal-sep{ color:var(--text-dim); }
-.balancing-line .bal-stage{ font-weight:600; white-space:nowrap; font-size:10px; }
-.balancing-line .bal-stage-1{ color:#dc2626; }
-.balancing-line .bal-stage-2{ color:#0d9488; }
 .balancing-line .balancing-note{ display:none; }
 
 .timer-box{
@@ -3359,6 +3356,15 @@ button:disabled{
 
 }
 
+.log-folder-name{
+    margin:4px 2px 0;
+    font-size:11px;
+    font-weight:600;
+    color:var(--text-dim);
+    text-align:center;
+    word-break:break-word;
+}
+
 .eq-sidebtn{
 
     width:100%;
@@ -3733,7 +3739,6 @@ button:disabled{
 .balancing-line .bal-dis,
 .balancing-line .bal-chg,
 .balancing-line .bal-sep,
-.balancing-line .bal-stage,
 .balancing-line .balancing-note{ font-size:12px; }
 
 /* Activity Log */
@@ -4862,7 +4867,10 @@ button:disabled{
 .dash-center .cell.balancing .cell-cyl{ transform:scale(1.12);transition:transform .25s ease; }
 /* subtle static ring on active cells; the moving flow arrow is the highlight */
 .dash-center .cell.charging .cell-cyl-body{ box-shadow:0 7px 15px -4px rgba(15,23,42,.3), 0 0 0 1.5px rgba(22,163,74,.6), inset 0 0 0 1px rgba(0,0,0,.06); }
-.dash-center .cell.balancing .cell-cyl-body{ box-shadow:0 7px 15px -4px rgba(15,23,42,.3), 0 0 0 1.5px rgba(220,38,38,.6), inset 0 0 0 1px rgba(0,0,0,.06); }
+/* Balancing cells no longer get a coloured ring/outline — the "BAL" badge
+   on the card itself (see .cell-state.dis below) is now what identifies
+   them, so the outline would just be redundant emphasis. */
+.dash-center .cell.balancing .cell-cyl-body{ box-shadow:0 7px 15px -4px rgba(15,23,42,.3), inset 0 0 0 1px rgba(0,0,0,.06); }
 /* the "Cell N" label of a balancing cell turns its state colour + a ⚖ mark */
 .dash-center .cell.charging .cell-num{ color:#16a34a; }
 .dash-center .cell.balancing .cell-num{ color:#dc2626; }
@@ -4893,6 +4901,34 @@ button:disabled{
 .dash-center .cell-state,
 .dash-center .cell-badge,
 .dash-center .cell-msgs{ display:none !important; }
+
+/* Exception: the "BAL"/"CHARGING" state word is deliberately shown again —
+   it's the one clear, at-a-glance way to tell which cells are actually
+   being worked on right now, now that the ring/outline highlight is gone.
+   Pinned inside the card on the right edge as a solid pill tag (not plain
+   text) so it reads as its own distinct badge rather than another line of
+   text competing with the voltage. Only ever has content while a cell is
+   actually charging/discharging, so it's invisible the rest of the time. */
+.dash-center .cell-state.dis,
+.dash-center .cell-state.chg{
+    display:block !important;
+    position:absolute;
+    top:50%;
+    right:8px;
+    transform:translateY(-50%);
+    margin:0;
+    padding:4px 10px;
+    border-radius:999px;
+    font-size:10px;
+    font-weight:800;
+    letter-spacing:.5px;
+    color:#fff;
+    white-space:nowrap;
+    box-shadow:0 3px 10px rgba(15,23,42,.28);
+    z-index:6;
+}
+.dash-center .cell-state.dis{ background:#dc2626; }
+.dash-center .cell-state.chg{ background:#16a34a; }
 
 /* Flat design: no ⚡/🔋 emblem on the cells (state shows via the border + badge). */
 .dash-center .cell.balancing::before,

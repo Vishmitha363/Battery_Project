@@ -116,10 +116,9 @@ let balancingActive = false;
 
 // "active" (cell-to-cell transfer, today's original behaviour) or
 // "passive" (resistor bleed — no receiver, and every over-threshold cell
-// can discharge at once). Chosen at login, remembered like the baud
-// rate, and still changeable from the dashboard via setBalancingMode()
-// — but only while balancing is stopped, so the algorithm never changes
-// out from under a transfer/bleed already in progress.
+// can discharge at once). Chosen at login and remembered like the baud
+// rate; the dashboard only displays it (BALANCER CONTROL heading, top-bar
+// status badge) and no longer offers a way to change it mid-session.
 let balancingMode = (function () {
 
     try { return localStorage.getItem("bmsBalancingMode") === "passive" ? "passive" : "active"; }
@@ -523,6 +522,17 @@ const MAX_BREAK_RECOVERY = 5;
 // from a stalled balancer unless we surface this.
 let lastCellFrameAt = null;
 
+// When the current port was opened — the countdown for
+// CELL_FRAME_TIMEOUT_MS starts here if no $CELL frame ever arrives at all.
+let deviceConnectedAt = null;
+
+// 15s with no $CELL frame (never received one since connecting, OR one
+// arrived before but stopped) means the link is dead even though the port
+// is still technically open — zero the cells and ask the operator to
+// reconnect rather than leave stale/frozen readings on screen forever.
+const CELL_FRAME_TIMEOUT_MS = 15000;
+let cellFrameTimeoutTriggered = false;
+
 // The ALERT PIN indicator: green (normal) until the board's watchdog
 // warning arrives, then red until the user clicks to acknowledge.
 let alertPinActive = false;
@@ -741,6 +751,8 @@ async function connectToPort(candidate) {
     // A fresh connection has heard nothing yet, whatever an earlier
     // one may have heard.
     lastCellFrameAt = null;
+    deviceConnectedAt = Date.now();
+    cellFrameTimeoutTriggered = false;
 
     // Deliberately NOT disabling simulation or zeroing the cells here.
     // An open port is not a source of cell voltages — it may lead to
@@ -1116,6 +1128,33 @@ function detectPassiveBalCellsReport() {
 
 }
 
+// A real device's parameter reply isn't always the compact "$PARAM ...#"
+// frame — it can be this human-readable block instead:
+//
+//   >>> --- Current BMS Settings --- <<<
+//   > EQHIGH        = 3.700 V
+//   > EQLOW         = 2.800 V
+//   ...
+//   >>> --------------------- <<<
+//
+// Same values readParameters() is waiting for, just laid out for a person
+// to read rather than for the frame parser. Kept on its own buffer (not
+// rawStatusTail) because the block runs well past that shared 400-char
+// window.
+let rawParamsTail = "";
+
+function detectParamsReport() {
+
+    const match = rawParamsTail.match(/Current\s+BMS\s+Settings[\s\S]*?-{5,}/i);
+
+    if (!match) return;
+
+    compareParameters(match[0]);
+
+    rawParamsTail = rawParamsTail.replace(match[0], "·");
+
+}
+
 // Messages from the board are framed as $...# rather than separated
 // by newlines, e.g.:
 // $CELL01:3500mV,CELL02:3400mV,CELL03:3600mV,CELL04:3600mV,CELL05:3200mV#
@@ -1140,6 +1179,11 @@ function handleRealDeviceChunk(chunk) {
     // detectPassiveBalCellsReport() for why this needs to be separate from
     // the single-pair parser below.
     detectPassiveBalCellsReport();
+
+    // The human-readable "Current BMS Settings" parameter dump — see
+    // detectParamsReport() for why this needs its own (longer) buffer.
+    rawParamsTail = (rawParamsTail + chunk).slice(-2000);
+    detectParamsReport();
 
     // Balancing commands sent without $...# framing are picked up here, on
     // the same raw buffer, so "BAL : CELL03 -> CELL06" works whether or not
@@ -1287,10 +1331,10 @@ function applyRemoteSetting(fieldKey, rawValue) {
 // ======================================
 //
 // Checks the device's Equalization Settings against this dashboard's.
-// The dashboard sends "$READPARAM#"; the device (or Docklight standing in
+// The dashboard sends "$READ#"; the device (or Docklight standing in
 // for it) replies with one frame listing its values, e.g.
 //
-//   $PARAM EQHIGH:4.000,STARTVOLTAGE:3.650,CELLS:16#
+//   $PARAM EQHIGH:4.000,EQLOW:3.650,CELLS:16#
 //
 // Only the fields present in the reply are compared, so a partial reply is
 // fine. When a field differs, the device's value is treated as the source of
@@ -1334,7 +1378,7 @@ function readParameters() {
 
     }, PARAM_REPLY_TIMEOUT_MS);
 
-    sendSerialCommand("READPARAM");
+    sendSerialCommand("READ");
 
     // "success" is not a verdict here — it is simply showStatus's only
     // non-red style, and a plain "waiting…" must not look like a failure.
@@ -1613,7 +1657,7 @@ function applyRealDeviceLine(message) {
     }
 
     // "$PARAM EQHIGH:4.000,CELLS:16#" — the device reporting its own
-    // settings in reply to READPARAM. Compared against the dashboard and
+    // settings in reply to READ. Compared against the dashboard and
     // reported on; deliberately never applied to the fields.
     if (/^PARAM\b/.test(cmd)) {
 
@@ -1623,17 +1667,27 @@ function applyRealDeviceLine(message) {
 
     }
 
-    // "SET <FIELD> <VALUE>" — accepts a space, colon, or "=" between
-    // the field name and value (and no space after "SET" either), so
-    // "$SET EQHIGH 4.000#", "$SET EQHIGH:4.000#" and "$SETEQHIGH:4.000#"
-    // all work the same.
-    const setMatch = cmd.match(/^SET\s*([A-Z]+)\s*[:=]?\s*([\d.]+)$/);
+    // "SET <FIELD> <VALUE>[, <FIELD> <VALUE> ...]" — one field, or several
+    // comma-separated in the same frame (same shape $PARAM replies already
+    // use). Accepts a space, colon, or "=" between each field and its
+    // value (and no space after "SET" either), so "$SET EQHIGH 4.000#",
+    // "$SET EQHIGH:4.000#", "$SETEQHIGH:4.000#" and
+    // "$SET EQHIGH:4.000,EQLOW:2.800,CELLS:16#" all work.
+    if (/^SET\b/.test(cmd)) {
 
-    if (setMatch) {
+        const rest = cmd.replace(/^SET\s*/, "");
+        const pairRe = /([A-Z]+)\s*[:=]?\s*([-\d.]+)/g;
 
-        applyRemoteSetting(setMatch[1], setMatch[2]);
+        let pairMatch, appliedAny = false;
 
-        return;
+        while ((pairMatch = pairRe.exec(rest)) !== null) {
+
+            appliedAny = true;
+            applyRemoteSetting(pairMatch[1], pairMatch[2]);
+
+        }
+
+        if (appliedAny) return;
 
     }
 
@@ -1712,6 +1766,7 @@ function applyRealDeviceLine(message) {
     cellVoltages = updated;
 
     lastCellFrameAt = Date.now();
+    cellFrameTimeoutTriggered = false;
 
     // A good frame got through — clear the break-retry count so an occasional
     // future glitch still gets its full allowance of reconnects.
@@ -1956,6 +2011,8 @@ async function ensureLogDir() {
 
                 logDirHandle = savedDir;
 
+                updateLogFolderDisplay();
+
                 return true;
 
             }
@@ -1968,6 +2025,8 @@ async function ensureLogDir() {
 
         await saveHandleToDB(logDirHandle);
 
+        updateLogFolderDisplay();
+
         return true;
 
     }
@@ -1977,6 +2036,8 @@ async function ensureLogDir() {
         console.log(error);
 
         logDirHandle = null;
+
+        updateLogFolderDisplay();
 
         if (error.name !== "AbortError") {
 
@@ -1989,6 +2050,21 @@ async function ensureLogDir() {
         return false;
 
     }
+
+}
+
+// Shows which folder logs are currently saving to, under the "Change Log
+// Folder" button. The File System Access API only ever exposes a picked
+// folder's own name (e.g. "BMS_Logs"), never its full absolute path — that
+// is a deliberate browser privacy restriction, not something this can work
+// around.
+function updateLogFolderDisplay() {
+
+    const el = document.getElementById("logFolderName");
+
+    if (!el) return;
+
+    el.textContent = logDirHandle ? `📁 ${logDirHandle.name}` : "No folder selected yet";
 
 }
 
@@ -2046,6 +2122,8 @@ async function resetLogFolder() {
 
         logEvent("📁 Log Folder Selected — Logging Enabled", "success");
 
+        updateLogFolderDisplay();
+
     }
 
     catch (error) {
@@ -2053,6 +2131,8 @@ async function resetLogFolder() {
         console.log(error);
 
         logDirHandle = null;
+
+        updateLogFolderDisplay();
 
         // Cancelling the picker is not an error worth shouting about.
         if (error.name !== "AbortError") {
@@ -2124,6 +2204,8 @@ async function initLogging() {
             await openTodayLogFile();
 
             logEvent("📁 Log Folder Restored — Logging Enabled", "info");
+
+            updateLogFolderDisplay();
 
         }
 
@@ -2611,6 +2693,22 @@ function randomInRange(min, max) {
 
 }
 
+// Simulated cell voltages should live inside whatever OV/UV Protection
+// limits are actually configured, not a fixed range unrelated to them —
+// otherwise "Automatic Values" testing doesn't reflect the settings in use.
+// Falls back to a sane default window if the fields are blank/invalid or
+// the limits are set the wrong way round.
+function simVoltageBounds() {
+
+    const uv = parseFloat(document.getElementById("uvProtection")?.value);
+    const ov = parseFloat(document.getElementById("ovProtection")?.value);
+
+    if (!isNaN(uv) && !isNaN(ov) && ov > uv) return { lo: uv, hi: ov };
+
+    return { lo: 3.0, hi: 4.0 };
+
+}
+
 // ======================================
 // SHOW STATUS
 // ======================================
@@ -2717,7 +2815,7 @@ const ACTION_LABELS = {
     AUTOEQUALIZE: "AUTOMATIC EQUALIZATION",
     RESTART: "SYSTEM RESTART",
     SAVE: "SAVE OK",
-    READPARAM: "READ PARAMETERS"
+    READ: "READ PARAMETERS"
 };
 
 // Units are taken from the labels the Equalization Settings modal
@@ -2850,10 +2948,9 @@ function balancingCellIndices() {
 
         // In simulation the dashboard IS draining the cell, so the sender
         // must drop out once it reaches the Starting Voltage — exactly like
-        // the auto-pick below. Without this, balancingCellIndices() never
-        // empties, finishBalancingIfSettled() never fires, balancingActive
-        // stays stuck true, and the drift walk (suppressed while balancing)
-        // freezes every Remote value until a $BALSTOP arrives.
+        // the auto-pick below. Without this the drift walk (suppressed
+        // while balancing) freezes every Remote value until a $BALSTOP
+        // arrives, since balancingActive would stay stuck true.
         const startV = parseFloat(document.getElementById("eqLow").value);
 
         // No threshold set — a simulated balance has no target to settle at,
@@ -3031,6 +3128,21 @@ function sendBalanceReport(force = false) {
 async function startBMS(transmit = true) {
 
     if (running) return;
+
+    // The saved CSV log is named by Pack No, so every pack's data has to
+    // land in its own file — starting with it blank would either write to
+    // an unnamed file or silently mix packs together. Refuse here, before
+    // anything starts, same as the other pre-flight checks below.
+    const packNo = document.getElementById("packNo")?.value.trim();
+
+    if (!packNo) {
+
+        showStatus("⛔ Cannot Start — Enter A Pack No First", "stop");
+        logEvent("⛔ START Refused — Pack No Is Empty", "error");
+
+        return;
+
+    }
 
     // An under-voltage cell blocks the whole session, not just balancing:
     // START drives the balancer, and balancing drains the highest cell into
@@ -3223,10 +3335,12 @@ function disableSimulationForRealData() {
 
 function initCellVoltages() {
 
+    const { lo, hi } = simVoltageBounds();
+
     for (let i = 0; i < CELL_COUNT; i++) {
 
         cellVoltages[i] = simulationEnabled
-            ? randomInRange(3.55, 3.85)
+            ? randomInRange(lo, hi)
             : 0;
 
     }
@@ -3253,11 +3367,13 @@ function liveDataTick() {
     // drifting.
     if (simulationEnabled && !balancingActive) {
 
+        const { lo, hi } = simVoltageBounds();
+
         for (let i = 0; i < CELL_COUNT; i++) {
 
             let v = cellVoltages[i] + randomInRange(-0.01, 0.01);
 
-            v = Math.min(4.0, Math.max(3.0, v));
+            v = Math.min(hi, Math.max(lo, v));
 
             cellVoltages[i] = v;
 
@@ -3278,11 +3394,11 @@ function liveDataTick() {
     maybeReestimateOnIdle();
 
     // Compare the actual finish against the estimated COMPLETES AT time and
-    // report on-time / late — must run BEFORE finishBalancingIfSettled(), which
-    // may stop the session (and clear balanceDeadlineAt) on the same tick.
+    // auto-stop once the pack is within BALANCED_DIFF_V — the only auto-stop
+    // condition; anything else (no active channels, a duty-cycle rest, a
+    // real board briefly reporting "BAL CELLS: NONE") is left running until
+    // a manual STOP.
     checkBalanceCompletionVsEstimate();
-
-    finishBalancingIfSettled();
 
     // Must run before anything reads the rate: updateBalancingDisplay()
     // and the Docklight report both ask for the ETA later this tick.
@@ -3451,6 +3567,49 @@ function bleedPerTick() {
 //   - frames went stale   -> it sent some, then stopped
 //   - frames still fresh  -> it IS sending, the numbers just aren't moving,
 //                            which means the balancer isn't doing anything
+// Zeros the cells and puts up the reconnect prompt once CELL_FRAME_TIMEOUT_MS
+// passes with no $CELL frame getting through — whether none ever arrived
+// since the port was opened, or one arrived earlier and then stopped. An
+// open port with nothing usable coming through it is treated the same as a
+// physical disconnect: fires once per connection (cellFrameTimeoutTriggered
+// is reset by connectToPort() and by the next real frame that lands).
+//
+// Real-device sessions only. An Automatic Values (Remote Monitor) session
+// can hold this same port open to stream its own simulated readings OUT to
+// Docklight — that port is deliberately never expected to send $CELL data
+// back, so it must never be treated as a dead connection.
+function checkCellFrameTimeout() {
+
+    if (usingAutomaticValues()) return;
+
+    if (cellFrameTimeoutTriggered) return;
+
+    const reference = lastCellFrameAt !== null ? lastCellFrameAt : deviceConnectedAt;
+
+    if (reference === null || Date.now() - reference < CELL_FRAME_TIMEOUT_MS) return;
+
+    cellFrameTimeoutTriggered = true;
+
+    // Stop treating this connection as a data source — same end state as a
+    // physical disconnect, since 15s of silence from an open real-device
+    // port means nothing usable is coming through it right now.
+    simulationEnabled = false;
+    zeroOutCellVoltages();
+
+    if (running) {
+
+        logEvent("⛔ BMS Auto-Stopped — No Cell Data Received In 15s", "error");
+        stopBMS();
+
+    }
+
+    logEvent("⚠ No Cell Frames Received In 15s — Cells Zeroed, Reconnect Required", "error");
+    showStatus("⚠ No Cell Data — Please Reconnect The Device", "stop");
+
+    showDisconnectModal();
+
+}
+
 function updateDeviceFreshness() {
 
     const el = document.getElementById("deviceFreshness");
@@ -3466,6 +3625,8 @@ function updateDeviceFreshness() {
         return;
 
     }
+
+    checkCellFrameTimeout();
 
     if (lastCellFrameAt === null) {
 
@@ -3692,10 +3853,10 @@ function balanceOffSeconds() {
 // phase right now" — a genuine, temporary pause. Critically, this is NOT
 // the same as passiveCellTimers being completely EMPTY: an empty set means
 // nothing is eligible at all anymore (the pack finished, or nothing was
-// ever above threshold), which is a real completion finishBalancingIfSettled()
-// needs to see, not a "rest" it should keep waiting through forever. A live
-// Docklight-named pair is never treated as resting in Passive mode — the
-// hardware is driving it directly, not the auto-pick scheduler.
+// ever above threshold), not a "rest" that should keep waiting through
+// forever. A live Docklight-named pair is never treated as resting in
+// Passive mode — the hardware is driving it directly, not the auto-pick
+// scheduler.
 function balancerResting() {
 
     if (!balancingActive) return false;
@@ -3730,7 +3891,8 @@ function balancerResting() {
 // Passive mode's two-stage ON-burst length for ONE cell — a clean step,
 // not a continuous taper:
 //   Stage 1 (voltage >= Starting Voltage + Starting Voltage/50, i.e. a
-//            fixed 2% margin above the target): 40s ON / configured OFF.
+//            fixed 2% margin above the target): configured Balancing ON
+//            Time / configured Balancing OFF Time.
 //   Stage 2 (below that margin, but still above the Starting Voltage):
 //            10s ON / configured OFF.
 // Each cell's timer in advancePassiveCellTimers() evaluates this fresh
@@ -3742,18 +3904,21 @@ function passiveStageBoundary(startVoltage) {
 
 }
 
-// 1 = still meaningfully above target (40s bursts), 2 = close to target
-// (10s bursts). Used both to pick the burst length and to label which
-// stage a discharging cell is in on the dashboard.
+// 1 = still meaningfully above target (Balancing ON Time bursts), 2 = close
+// to target (10s bursts). Used both to pick the burst length and to label
+// which stage a discharging cell is in on the dashboard.
 function passiveStageForVoltage(voltage, startVoltage) {
 
     return voltage >= passiveStageBoundary(startVoltage) ? 1 : 2;
 
 }
 
+// Stage 1's burst length is the configured Balancing ON Time setting —
+// same as balanceOffSeconds() already reads Balancing OFF Time — not a
+// fixed number, so setting it to 60 makes Stage 1 bursts run 60s.
 function passiveOnSecondsForVoltage(voltage, startVoltage) {
 
-    return passiveStageForVoltage(voltage, startVoltage) === 1 ? 40 : 10;
+    return passiveStageForVoltage(voltage, startVoltage) === 1 ? balanceOnSeconds() : 10;
 
 }
 
@@ -3814,9 +3979,20 @@ function advancePassiveCellTimers() {
 
         const t = passiveCellTimers[i];
 
-        const eligible = anyStage1
-            ? cellVoltages[i] >= stage1Boundary
-            : cellVoltages[i] > startVoltage;
+        // A cell resting on its OFF break is never interrupted by the Stage
+        // gate — only an ACTIVE (ON-phase) bleed is subject to the Stage 1
+        // priority. Applying the gate to a resting cell too meant its break
+        // got deleted and restarted from zero the instant the pack's stage
+        // mix shifted (e.g. another cell rose into Stage 1 mid-rest), which
+        // made the observed break length inconsistent even though nothing
+        // was actually being bled during a rest anyway.
+        const resting = t && t.phase === "off";
+
+        const eligible = resting
+            ? cellVoltages[i] > startVoltage
+            : anyStage1
+                ? cellVoltages[i] >= stage1Boundary
+                : cellVoltages[i] > startVoltage;
 
         // Not currently eligible — either settled, never qualified, or
         // paused by the Stage 1/2 priority gate above. Drop its timer so
@@ -3866,11 +4042,6 @@ function advancePassiveCellTimers() {
             }
 
         } else {
-
-            // TEMP DIAGNOSTIC — fires only once per break (not per-tick), when
-            // a break actually ends, showing how long it really lasted vs.
-            // the configured Balancing OFF Time. Remove once confirmed fixed.
-            console.log(`[break] Cell ${i + 1}: break lasted ${elapsed.toFixed(1)}s (configured ${t.phaseDurationS}s)`);
 
             t.phase = "on";
             t.phaseStartAt = now;
@@ -3973,8 +4144,10 @@ function balanceCompletionClock() {
 }
 
 // Once the pack has actually reached balanced (highest and lowest cell within
-// BALANCED_DIFF_V of each other), check whether it finished by the estimated
-// COMPLETES AT time — and report ON TIME / early / late. Fires exactly once per
+// BALANCED_DIFF_V of each other, AND that tight cluster sits at/below the
+// Equilibrium Limit Voltage LOW target rather than incidentally bunched up
+// somewhere above it), check whether it finished by the estimated COMPLETES
+// AT time — and report ON TIME / early / late. Fires exactly once per
 // balancing session. Works for real and simulated data alike, since it watches
 // the live high−low difference, the same quantity the estimate is built from.
 function checkBalanceCompletionVsEstimate() {
@@ -3983,10 +4156,17 @@ function checkBalanceCompletionVsEstimate() {
 
     if (cellVoltages.length < 2 || Math.max(...cellVoltages) <= 0) return;
 
-    const difference = Math.max(...cellVoltages) - Math.min(...cellVoltages);
+    const highestNow = Math.max(...cellVoltages);
+    const difference = highestNow - Math.min(...cellVoltages);
 
     // Not balanced yet — keep waiting.
     if (difference > BALANCED_DIFF_V) return;
+
+    // A tight cluster only counts as DONE if it has actually come down to the
+    // balancing limit — not a tight cluster sitting well above it (which
+    // isn't a finished balance, just a pack that happens to be even).
+    const startV = parseFloat(document.getElementById("eqLow")?.value);
+    if (!isNaN(startV) && highestNow > startV) return;
 
     balanceCompletionChecked = true;
 
@@ -4043,51 +4223,13 @@ function checkBalanceCompletionVsEstimate() {
 
 }
 
-// Stops the balancer once no cell sits above the Starting Voltage, so a
-// finished balance reports itself instead of leaving the box up forever.
-//
-// Simulated data only. On a real board the readings carry ADC noise, and
-// one sample dipping under the threshold does not mean the balance is
-// done — that call belongs to the firmware, which is the thing actually
-// moving charge. The dashboard would only be guessing, and a wrong guess
-// sends "$BALSTOP#" and halts a balance that was still working.
-function finishBalancingIfSettled() {
-
-    if (!balancingActive || !simulationEnabled) return;
-
-    // During the duty-cycle rest balancingCellIndices() is empty on purpose —
-    // that is a scheduled pause, not the balance finishing. Don't stop.
-    if (balancerResting()) return;
-
-    if (balancingCellIndices().length) return;
-
-    // TEMP DIAGNOSTIC — one-shot, fires only at the actual completion
-    // decision (not per-tick), so this is safe to leave in briefly. Remove
-    // once the premature-completion issue is confirmed fixed.
-    console.log("[finishBalancingIfSettled] declaring complete —", JSON.stringify({
-        eqLow: parseFloat(document.getElementById("eqLow").value),
-        cellVoltages: cellVoltages.slice(),
-        passiveCellTimers,
-        balancingMode
-    }));
-
-    balancingCompletedCount++;
-
-    logEvent("✅ Balancing Complete — All Cells At Equilibrium Limit LOW", "success");
-    showStatus("✅ Balancing Complete — Auto-Stopped", "success");
-
-    // The whole-pack cycle limit was removed. Balancing is now bounded
-    // only by the per-cell "balanced too many times" guard, not by a
-    // count of full-pack cycles — so completing a cycle never locks out.
-    saveBalanceStats();
-
-    // Auto-stop BOTH the balancing AND the BMS session — pressing STOP for the
-    // operator. stopBMS() stops the session and calls stopBalancing() itself;
-    // if there was no BMS session (Docklight-only balance), just stop balancing.
-    if (running) stopBMS();
-    else stopBalancing();
-
-}
+// finishBalancingIfSettled() (the old "no cell currently eligible" based
+// auto-stop) was removed — it could fire on a passing gap between cells
+// (or a real board's normal OFF-phase "BAL CELLS: NONE") well before the
+// pack was actually balanced, which was the cause of the premature
+// "Balancing Complete" reports seen during testing. Auto-stop now happens
+// only from checkBalanceCompletionVsEstimate()'s spread check, the single
+// source of truth for "is this pack actually done".
 
 // Plain informational count of today's balancing — no limit, since the
 // whole-pack cycle limit was removed. Shows completed cycles, with how
@@ -4336,7 +4478,11 @@ function renderCells() {
             st.textContent = txt;
         }
 
-        // Direction label under the cell — only for the active pair.
+        // Direction label under the cell — only for the active pair (Active
+        // mode) or the currently-bleeding cells (Passive mode). Passive
+        // never transfers charge, so it always shows "BAL" (never
+        // "CHARGING") — a short, distinct word that visually sets a
+        // balancing cell apart from the rest of the pack at a glance.
         const state = document.getElementById(`cellState${i}`);
 
         if (state) {
@@ -4345,7 +4491,7 @@ function renderCells() {
                 state.textContent = "▲ CHARGING";
                 state.className = "cell-state chg";
             } else if (cellBalancing[idx]) {
-                state.textContent = "▼ DISCHARGING";
+                state.textContent = balancingMode === "passive" ? "▼ BAL" : "▼ DISCHARGING";
                 state.className = "cell-state dis";
             } else {
                 state.textContent = "";
@@ -4370,21 +4516,21 @@ function cellLevel(i) {
     const vals = cellVoltages;
     if (!vals.length) return "normal";
 
+    // LOW (blue) is an ABSOLUTE check only — genuinely below Single Under
+    // Voltage Protection — never just "whichever cell is currently lowest
+    // in the pack". A cell sitting at 3.5V while the rest are at 3.7V is
+    // not actually low just because it's the minimum; only dropping below
+    // the real safety limit should paint it blue.
     if (cellOVFault[i]) return "veryhigh";
     if (cellUVFault[i]) return "low";
 
-    const max = Math.max(...vals), min = Math.min(...vals);
-    const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
-
-    // "Very high" means genuinely standing out above the pack, not merely
-    // tied for whatever the current max happens to be. Passive balancing
-    // deliberately floors many cells to the SAME target voltage — once
-    // several of them tie for the max, that's the balance succeeding, not
-    // a danger, so it shouldn't paint the whole pack red. Falls through to
-    // "high" below, same threshold that tier already uses.
-    if (vals[i] >= max && vals[i] >= avg + 0.03) return "veryhigh";
-    if (vals[i] <= min) return "low";
-    if (vals[i] >= avg + 0.03) return "high";
+    // HIGH is an ABSOLUTE check against the Equilibrium Limit Voltage HIGH
+    // setting, same as LOW above — not "whichever cells sit above the pack
+    // average". A cell shouldn't paint yellow just because the rest of the
+    // pack happens to be a little lower; only crossing the real high limit
+    // should flag it.
+    const eqHigh = parseFloat(document.getElementById("eqHigh")?.value);
+    if (!isNaN(eqHigh) && vals[i] >= eqHigh) return "high";
     return "normal";
 }
 
@@ -4436,7 +4582,8 @@ function renderCellStatePop() {
     // One row PER CELL: each cell's own charging and discharging count.
     // All reset to 0 on START (so 16 cells × 2 = 32 zeros), then each cell's
     // own count rises as that cell charges / discharges.
-    // A count that reaches the Over-Balance Warning Limit is flagged red.
+    // A count that reaches the Over-Balance Warning Limit is flagged red —
+    // Active mode only, since the limit itself is removed for Passive.
     const lim = overBalWarnLimit();
 
     // Passive never charges a cell (bleed-only, no receiver — see
@@ -4448,7 +4595,7 @@ function renderCellStatePop() {
     let rows = "";
     for (let i = 0; i < CELL_COUNT; i++) {
         const chgOver = cellChargeTicks[i] >= lim ? " csp-over" : "";
-        const disOver = cellDischargeTicks[i] >= lim ? " csp-over" : "";
+        const disOver = (!passive && cellDischargeTicks[i] >= lim) ? " csp-over" : "";
         rows +=
             `<tr>` +
                 `<td class="csp-cn">Cell ${i + 1}</td>` +
@@ -5101,36 +5248,46 @@ function checkWarnings() {
             // Dashboard-side over-balance warning: when this cell's own
             // discharge or charge count reaches the limit set in EQ
             // Settings, flag it (▶ discharge / ◀ charge) and log it once.
-            const warnLimit = overBalWarnLimit();
-            const overDischarge = cellDischargeCount[i] >= warnLimit;
-            const overCharge = cellChargeCount[i] >= warnLimit;
+            // Active mode only — removed for Passive, where every cell can
+            // legitimately run through many more cycles than Active's
+            // single-pair model ever would, making this warning noisy
+            // rather than useful there. The separate hard per-cell transfer
+            // LIMIT/lockout below is unaffected — that safety stop still
+            // applies in both modes.
+            if (balancingMode === "active") {
 
-            if (overDischarge || overCharge) {
+                const warnLimit = overBalWarnLimit();
+                const overDischarge = cellDischargeCount[i] >= warnLimit;
+                const overCharge = cellChargeCount[i] >= warnLimit;
 
-                const dir = overDischarge ? "▶" : "◀";
-                const count = overDischarge ? cellDischargeCount[i] : cellChargeCount[i];
+                if (overDischarge || overCharge) {
 
-                texts.push({ text: `⚠ Over-bal ${dir} ${count}`, cls: "overbal" });
+                    const dir = overDischarge ? "▶" : "◀";
+                    const count = overDischarge ? cellDischargeCount[i] : cellChargeCount[i];
 
-                // Repeat the warning every 5 s while the cell stays over the
-                // limit — fires immediately on first crossing (last = 0).
-                if (Date.now() - cellOverBalLastWarn[i] >= OVERBAL_WARN_REPEAT_MS) {
+                    texts.push({ text: `⚠ Over-bal ${dir} ${count}`, cls: "overbal" });
 
-                    cellOverBalLastWarn[i] = Date.now();
+                    // Repeat the warning every 5 s while the cell stays over the
+                    // limit — fires immediately on first crossing (last = 0).
+                    if (Date.now() - cellOverBalLastWarn[i] >= OVERBAL_WARN_REPEAT_MS) {
 
-                    // Exact board message format (8 = FORWARD/discharge,
-                    // 9 = REVERSE/charge), Cell zero-padded to two digits.
-                    const cellStr = String(i + 1).padStart(2, "0");
-                    const path = overDischarge ? "FORWARD" : "REVERSE";
+                        cellOverBalLastWarn[i] = Date.now();
 
-                    logEvent(`WARNING: Cell${cellStr} is over-balancing in ${path} path! (${count} runs)`, "error");
-                    showStatus(`⚠ Cell ${i + 1} over-balancing (${path})`, "stop");
+                        // Exact board message format (8 = FORWARD/discharge,
+                        // 9 = REVERSE/charge), Cell zero-padded to two digits.
+                        const cellStr = String(i + 1).padStart(2, "0");
+                        const path = overDischarge ? "FORWARD" : "REVERSE";
+
+                        logEvent(`WARNING: Cell${cellStr} is over-balancing in ${path} path! (${count} runs)`, "error");
+                        showStatus(`⚠ Cell ${i + 1} over-balancing (${path})`, "stop");
+
+                    }
 
                 }
 
-            }
+                else cellOverBalLastWarn[i] = 0;
 
-            else cellOverBalLastWarn[i] = 0;
+            }
 
             msgContainer.innerHTML = texts
                 .map(t => `<span class="cell-msg ${t.cls}">${t.text}</span>`)
@@ -5423,9 +5580,12 @@ function underVoltageCells() {
 // within this much of each other. Deliberately NOT the Equalizing
 // Differential Voltage setting: that defaults to 1.5 V — a loose "this pack
 // is badly out" warning threshold — and using it here would call almost any
-// real pack balanced and refuse to ever start. This is the same 0.020 V
-// Automatic Equalization has always called balanced, so both paths agree.
-const BALANCED_DIFF_V = 0.02;
+// real pack balanced and refuse to ever start. This is also the one and
+// only auto-stop condition (see checkBalanceCompletionVsEstimate()) — a
+// running balance is left alone until the spread actually closes to this,
+// never stopped for any other reason (idle channels, a duty-cycle rest, a
+// real board briefly reporting "BAL CELLS: NONE").
+const BALANCED_DIFF_V = 0.004;
 
 // Returns false when there is nothing to judge (no readings yet, so every
 // cell reads 0.000 V): a spread of zero there means "no data", not
@@ -5612,8 +5772,9 @@ function setManualBalancePair(sender, receiver) {
 
 }
 
-// Reflects balancingMode onto the BALANCER CONTROL heading and the
-// dashboard's own Active/Passive toggle. Safe to call before the
+// Reflects balancingMode onto the BALANCER CONTROL heading and the top-bar
+// status badge (updateBalancingStatus() reads balancingMode itself each
+// tick, so nothing further to push there). Safe to call before the
 // dashboard's DOMContentLoaded bootstrap runs — script.js loads at the
 // end of <body>, so every element it touches already exists.
 function syncBalancingModeUI() {
@@ -5621,49 +5782,9 @@ function syncBalancingModeUI() {
     const heading = document.getElementById("balancerModeHeading");
     if (heading) heading.textContent = balancingMode === "passive" ? "PASSIVE BALANCING" : "ACTIVE BALANCING";
 
-    const activeBtn = document.getElementById("dashModeActiveBtn");
-    const passiveBtn = document.getElementById("dashModePassiveBtn");
-
-    if (activeBtn) activeBtn.classList.toggle("selected", balancingMode === "active");
-    if (passiveBtn) passiveBtn.classList.toggle("selected", balancingMode === "passive");
-
 }
 
 syncBalancingModeUI();
-
-// Switches between Active (cell-to-cell transfer, one pair at a time) and
-// Passive (resistor bleed, no receiver, any number of cells at once — see
-// advancePassiveCellTimers()). Refused while balancing is running so the
-// algorithm never changes mid-transfer — same "refuse with a clear
-// reason" pattern as the over-balance lockout below.
-function setBalancingMode(mode) {
-
-    if (mode !== "active" && mode !== "passive") return;
-
-    if (mode === balancingMode) return;
-
-    if (balancingActive) {
-
-        showStatus("⛔ Stop Balancing Before Switching Mode", "stop");
-        logEvent("⛔ Balancing Mode Switch Refused — Balancing Is Active", "error");
-
-        return;
-
-    }
-
-    balancingMode = mode;
-
-    try { localStorage.setItem("bmsBalancingMode", mode); }
-    catch (e) { /* storage blocked — the in-memory choice still works this session */ }
-
-    syncBalancingModeUI();
-
-    const label = mode === "passive" ? "Passive" : "Active";
-
-    showStatus(`⚖ Switched To ${label} Balancing`, "success");
-    logEvent(`⚖ Balancing Mode Set To ${label}`, "info");
-
-}
 
 async function startBalancing(transmit = true) {
 
@@ -5826,7 +5947,11 @@ async function startBalancing(transmit = true) {
     if (bStop) bStop.disabled = false;
 
     document.getElementById("balancingBox").style.display = "flex";
-    document.getElementById("etaBox").style.display = "block";
+
+    // COMPLETES AT is Active-only now — Passive's estimate wasn't reliable
+    // enough to be worth showing (concurrency, staging, and per-cell tapers
+    // make the "when will it finish" projection too rough to trust).
+    document.getElementById("etaBox").style.display = balancingMode === "passive" ? "none" : "block";
 
     // cellBalancing[] was computed on the last tick, when balancingActive
     // was still false — so every entry is false right now. Recompute it
@@ -5952,8 +6077,9 @@ function updateBalancingStatus() {
         .map((isBalancing, index) => (isBalancing ? index : -1))
         .filter(index => index !== -1);
 
-    // Two-line badge: "Balancing" on top, Active / Resting / Idle below.
-    text.textContent = "Balancing";
+    // Two-line badge: "ACTIVE/PASSIVE BALANCING" on top, Active / Resting /
+    // Idle below — e.g. "PASSIVE BALANCING" / "IDLE".
+    text.textContent = (balancingMode === "passive" ? "PASSIVE" : "ACTIVE") + " BALANCING";
 
     const active = balancingActive && discharging.length > 0;
 
@@ -6088,34 +6214,15 @@ function updateBalancingDisplay() {
     // receiver, since Passive never has one.
     if (balancingMode === "passive") {
 
-        // The sequential Stage 1 -> Stage 2 gate in advancePassiveCellTimers()
-        // means every cell currently discharging is always the SAME stage at
-        // once — so the stage is shown once, in the heading, rather than
-        // repeated on every cell's row. Colour-coded (Stage 1 warm/red,
-        // Stage 2 cool/teal) so the two read apart at a glance.
-        const stage = (discharging.length && !isNaN(startVoltage))
-            ? passiveStageForVoltage(cellVoltages[discharging[0]], startVoltage)
-            : null;
-
-        const stageTag = stage === null
-            ? ""
-            : ` <span class="bal-stage bal-stage-${stage}">· STAGE ${stage} (${stage === 1 ? "40s" : "10s"})</span>`;
-
-        title.innerHTML = `⚖ ACTIVE CHANNELS: ${discharging.length}${stageTag}`;
+        title.innerHTML = `⚖ ACTIVE CHANNELS: ${discharging.length}`;
 
         list.innerHTML = discharging
             .map(i => `<span class="bal-dis">▼ Cell ${i + 1} ${cellVoltages[i].toFixed(3)} V</span>`)
             .join(" ");
 
-        const passiveClock = balanceCompletionClock();
-
-        note.innerHTML = passiveClock === null
-            ? "Set an Equalizing Current to estimate"
-            : `Completes at ${passiveClock} (from current & cell difference)`;
-
-        const passiveEta = document.getElementById("balanceEta");
-
-        if (passiveEta) passiveEta.innerHTML = passiveClock === null ? "--" : passiveClock;
+        // No COMPLETES AT for Passive — removed as unreliable given
+        // concurrency, staging, and per-cell tapers.
+        note.innerHTML = "";
 
         return;
 
@@ -7765,10 +7872,10 @@ function renderGraph() {
             const ovV = parseFloat(document.getElementById("ovProtection")?.value);
             const uvV = parseFloat(document.getElementById("uvProtection")?.value);
 
-            // Include avg / OV / UV in the range so every level line shows.
-            const scaleVals = vlist.concat([avgV, ovV, uvV].filter(v => !isNaN(v)));
-            let lo = Math.floor((Math.min(...scaleVals) - 0.03) * 100) / 100;
-            let hi = Math.ceil((Math.max(...scaleVals) + 0.03) * 100) / 100;
+            // Scale to the cells actually on screen — threshold lines
+            // (avg/OV/UV) still draw when they land inside this range.
+            let lo = Math.floor((Math.min(...vlist) - 0.03) * 100) / 100;
+            let hi = Math.ceil((Math.max(...vlist) + 0.03) * 100) / 100;
             if (lo < 0) lo = 0;
             if (hi - lo < 0.1) hi = lo + 0.1;
             const yOf = v => padT + plotH * (1 - (v - lo) / (hi - lo));
@@ -8025,11 +8132,11 @@ function renderGraph() {
             const ovV = parseFloat(document.getElementById("ovProtection")?.value);
             const uvV = parseFloat(document.getElementById("uvProtection")?.value);
 
-            // Include the threshold levels (avg / start / OV / UV) in the y-range
-            // so every level line is actually inside the chart and shows correctly.
-            const scaleVals = shownV.concat([avgV, startV, ovV, uvV].filter(v => !isNaN(v)));
-            let lo = Math.floor((Math.min(...scaleVals) - 0.03) * 100) / 100;
-            let hi = Math.ceil((Math.max(...scaleVals) + 0.03) * 100) / 100;
+            // Scale to the cells actually on screen so the bars fill the chart —
+            // threshold lines (avg/start/OV/UV) still draw when they land inside
+            // this range (graphRefLine skips them otherwise).
+            let lo = Math.floor((Math.min(...shownV) - 0.03) * 100) / 100;
+            let hi = Math.ceil((Math.max(...shownV) + 0.03) * 100) / 100;
             if (lo < 0) lo = 0;
             if (hi - lo < 0.1) hi = lo + 0.1;
             const yOf = v => padT + plotH * (1 - (v - lo) / (hi - lo));
