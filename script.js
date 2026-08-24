@@ -859,6 +859,19 @@ async function readRealDeviceLoop() {
         // "device disconnected" log/redirect on top of it.
         if (loggingOut) return;
 
+        // Automatic Values sessions can hold this same port open only to
+        // stream their OWN simulated readings out to Docklight — it was
+        // never a source of cell data, so it closing has no bearing on the
+        // (still fully simulated) session. No reconnect prompt, no
+        // auto-stop, no break-recovery retry.
+        if (usingAutomaticValues()) {
+
+            logEvent("🔌 Docklight Port Closed — Automatic Session Unaffected", "info");
+
+            return;
+
+        }
+
         // A com0com "BreakError" (and similar framing/parity/overrun line
         // glitches) is NOT a real unplug — reopen the same port and carry on,
         // so a write-triggered break doesn't kill the whole session. Bail to
@@ -6376,6 +6389,11 @@ document.addEventListener("DOMContentLoaded", () => {
 // operator can choose to reconnect the hardware or log out.
 
 function showDisconnectModal() {
+
+    // Never for an Automatic Values session — its port (if any) is only an
+    // optional companion for streaming simulated data out, never a data
+    // source, so it dropping is never a reason to prompt for reconnect.
+    if (usingAutomaticValues()) return;
 
     const overlay = document.getElementById("disconnectOverlay");
 
