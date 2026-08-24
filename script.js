@@ -526,7 +526,7 @@ let lastCellFrameAt = null;
 // CELL_FRAME_TIMEOUT_MS starts here if no $CELL frame ever arrives at all.
 let deviceConnectedAt = null;
 
-// 15s with no $CELL frame (never received one since connecting, OR one
+// 30s with no $CELL frame (never received one since connecting, OR one
 // arrived before but stopped) means the link is dead even though the port
 // is still technically open — zero the cells and ask the operator to
 // reconnect rather than leave stale/frozen readings on screen forever.
@@ -2213,7 +2213,10 @@ async function ensureLogFileQuiet() {
 
 // On page load, silently restore a previously chosen folder (only if its
 // permission is still granted — requesting it needs a user gesture) and
-// open today's file, so logging resumes on its own after a reload.
+// open today's file, so logging resumes on its own after a reload. If no
+// folder has EVER been picked (or permission on the old one lapsed), asks
+// once via showLogFolderPrompt() instead of leaving logging silently off
+// with no indication anything needs doing.
 async function initLogging() {
 
     if (logDirHandle || !("showDirectoryPicker" in window)) return;
@@ -2222,7 +2225,13 @@ async function initLogging() {
 
         const savedDir = await loadHandleFromDB().catch(() => null);
 
-        if (!savedDir) return;
+        if (!savedDir) {
+
+            showLogFolderPrompt();
+
+            return;
+
+        }
 
         const permission = await savedDir.queryPermission({ mode: "readwrite" });
 
@@ -2238,6 +2247,12 @@ async function initLogging() {
 
         }
 
+        else {
+
+            showLogFolderPrompt();
+
+        }
+
     }
 
     catch (error) { console.log(error); }
@@ -2245,6 +2260,54 @@ async function initLogging() {
 }
 
 document.addEventListener("DOMContentLoaded", initLogging);
+
+// Session-only (not localStorage): skipping just quiets the nag for the
+// rest of this browser tab, not forever — the next fresh login gets asked
+// again, since logging still being off is worth surfacing occasionally
+// rather than staying silent across every future session.
+const LOG_FOLDER_PROMPT_SKIPPED_KEY = "logFolderPromptSkipped";
+
+function showLogFolderPrompt() {
+
+    if (sessionStorage.getItem(LOG_FOLDER_PROMPT_SKIPPED_KEY) === "1") return;
+
+    const overlay = document.getElementById("logFolderPromptOverlay");
+
+    if (overlay) overlay.classList.add("open");
+
+}
+
+function hideLogFolderPrompt() {
+
+    const overlay = document.getElementById("logFolderPromptOverlay");
+
+    if (overlay) overlay.classList.remove("open");
+
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+
+    const chooseBtn = document.getElementById("logFolderPromptChooseBtn");
+    const skipBtn = document.getElementById("logFolderPromptSkipBtn");
+
+    if (chooseBtn) chooseBtn.addEventListener("click", async () => {
+
+        hideLogFolderPrompt();
+
+        if (await ensureLogDir()) await openTodayLogFile();
+
+    });
+
+    if (skipBtn) skipBtn.addEventListener("click", () => {
+
+        try { sessionStorage.setItem(LOG_FOLDER_PROMPT_SKIPPED_KEY, "1"); }
+        catch (e) { /* storage blocked — the overlay just won't reopen this reload */ }
+
+        hideLogFolderPrompt();
+
+    });
+
+});
 
 // Opens (or creates) today's CSV file inside the chosen folder. If a
 // session is still running when the date rolls over, this switches to
@@ -2852,7 +2915,6 @@ const ACTION_LABELS = {
 const SETTING_UNITS = {
     EQHIGH: "V",
     EQLOW: "V",
-    STARTVOLTAGE: "V",
     DIFFLIMIT: "V",
     CURRENTLIMIT: "A",
     CELLS: "cells",
@@ -3168,6 +3230,22 @@ async function startBMS(transmit = true) {
 
         showStatus("⛔ Cannot Start — Enter A Pack No First", "stop");
         logEvent("⛔ START Refused — Pack No Is Empty", "error");
+
+        return;
+
+    }
+
+    // Every session's readings must be saved somewhere — starting without a
+    // log folder chosen would run the whole session with nothing recorded.
+    // Refuse here and surface the folder prompt again — pressing START is a
+    // stronger signal than an earlier "Skip For Now", so it bypasses that.
+    if (!logDirHandle) {
+
+        showStatus("⛔ Cannot Start — Select A Log Folder First", "stop");
+        logEvent("⛔ START Refused — No Log Folder Selected", "error");
+
+        const overlay = document.getElementById("logFolderPromptOverlay");
+        if (overlay) overlay.classList.add("open");
 
         return;
 
@@ -3620,19 +3698,19 @@ function checkCellFrameTimeout() {
     cellFrameTimeoutTriggered = true;
 
     // Stop treating this connection as a data source — same end state as a
-    // physical disconnect, since 15s of silence from an open real-device
+    // physical disconnect, since 30s of silence from an open real-device
     // port means nothing usable is coming through it right now.
     simulationEnabled = false;
     zeroOutCellVoltages();
 
     if (running) {
 
-        logEvent("⛔ BMS Auto-Stopped — No Cell Data Received In 15s", "error");
+        logEvent("⛔ BMS Auto-Stopped — No Cell Data Received In 30s", "error");
         stopBMS();
 
     }
 
-    logEvent("⚠ No Cell Frames Received In 15s — Cells Zeroed, Reconnect Required", "error");
+    logEvent("⚠ No Cell Frames Received In 30s — Cells Zeroed, Reconnect Required", "error");
     showStatus("⚠ No Cell Data — Please Reconnect The Device", "stop");
 
     showDisconnectModal();
@@ -4072,9 +4150,24 @@ function advancePassiveCellTimers() {
 
         } else {
 
-            t.phase = "on";
-            t.phaseStartAt = now;
-            t.phaseDurationS = passiveOnSecondsForVoltage(cellVoltages[i], startVoltage);
+            // Break just ended — before resuming, re-check the Stage 1
+            // gate: if some other cell has since risen into Stage 1 while
+            // this one was resting, a Stage 2 cell must wait its turn
+            // rather than resume regardless, same as it would be blocked
+            // from starting fresh.
+            const stillEligible = anyStage1 ? cellVoltages[i] >= stage1Boundary : true;
+
+            if (!stillEligible) {
+
+                delete passiveCellTimers[i];
+
+            } else {
+
+                t.phase = "on";
+                t.phaseStartAt = now;
+                t.phaseDurationS = passiveOnSecondsForVoltage(cellVoltages[i], startVoltage);
+
+            }
 
         }
 
@@ -4173,12 +4266,13 @@ function balanceCompletionClock() {
 }
 
 // Once the pack has actually reached balanced (highest and lowest cell within
-// BALANCED_DIFF_V of each other, AND that tight cluster sits at/below the
-// Equilibrium Limit Voltage LOW target rather than incidentally bunched up
-// somewhere above it), check whether it finished by the estimated COMPLETES
-// AT time — and report ON TIME / early / late. Fires exactly once per
-// balancing session. Works for real and simulated data alike, since it watches
-// the live high−low difference, the same quantity the estimate is built from.
+// BALANCED_DIFF_V of each other, AND that tight cluster sits within
+// BALANCED_DIFF_V of the Equilibrium Limit Voltage LOW target rather than
+// incidentally bunched up well above it), check whether it finished by the
+// estimated COMPLETES AT time — and report ON TIME / early / late. Fires
+// exactly once per balancing session. Works for real and simulated data
+// alike, since it watches the live high−low difference, the same quantity
+// the estimate is built from.
 function checkBalanceCompletionVsEstimate() {
 
     if (!balancingActive || balanceCompletionChecked) return;
@@ -4191,11 +4285,13 @@ function checkBalanceCompletionVsEstimate() {
     // Not balanced yet — keep waiting.
     if (difference > BALANCED_DIFF_V) return;
 
-    // A tight cluster only counts as DONE if it has actually come down to the
-    // balancing limit — not a tight cluster sitting well above it (which
-    // isn't a finished balance, just a pack that happens to be even).
+    // A tight cluster only counts as DONE if it has actually come down to
+    // the balancing limit (within the same BALANCED_DIFF_V tolerance —
+    // e.g. eqLow 2.800V allows up to 2.804V) — not a tight cluster sitting
+    // well above it (which isn't a finished balance, just a pack that
+    // happens to be even).
     const startV = parseFloat(document.getElementById("eqLow")?.value);
-    if (!isNaN(startV) && highestNow > startV) return;
+    if (!isNaN(startV) && highestNow > startV + BALANCED_DIFF_V) return;
 
     balanceCompletionChecked = true;
 
@@ -5097,6 +5193,15 @@ function checkWarnings() {
     // every cell.
     let countsChanged = false;
 
+    // All cells reading 0V means "no real data right now" — either nothing
+    // has arrived yet, or checkCellFrameTimeout() just zeroed the pack
+    // after losing the connection — not 16 cells genuinely under-voltage.
+    // New OV/UV faults and "Balancing Successful" are only ever detected
+    // from a real reading; existing fault state stays frozen as-is until
+    // real data resumes, rather than being false-derived from the zeroed
+    // placeholder.
+    const hasData = cellVoltages.length > 0 && Math.max(...cellVoltages) > 0;
+
     for (let i = 0; i < CELL_COUNT; i++) {
 
         const v = cellVoltages[i];
@@ -5116,35 +5221,43 @@ function checkWarnings() {
         // LOW also doubles as the balancing threshold now — using it here
         // too would fire this warning for almost the whole pack any time
         // it's below a normal balancing target, not just genuinely low cells.
-        if (!isNaN(eqHigh) && v > eqHigh) aboveLimit.push(i);
-        if (!isNaN(uvLimit) && v < uvLimit) belowLimit.push(i);
+        // All of this is skipped without real data (hasData false) — a
+        // zeroed placeholder must never be read as 16 genuine faults.
+        if (hasData) {
 
-        // Monomer Over Voltage Protection / Recovery
-        if (!isNaN(ovLimit) && !cellOVFault[i] && v > ovLimit) {
+            if (!isNaN(eqHigh) && v > eqHigh) aboveLimit.push(i);
+            if (!isNaN(uvLimit) && v < uvLimit) belowLimit.push(i);
 
-            cellOVFault[i] = true;
+            // Monomer Over Voltage Protection / Recovery
+            if (!isNaN(ovLimit) && !cellOVFault[i] && v > ovLimit) {
+
+                cellOVFault[i] = true;
+
+            }
+
+            if (cellOVFault[i] && !isNaN(ovRecovery) && v < ovRecovery) {
+
+                cellOVFault[i] = false;
+
+            }
+
+            // Single Under Voltage Protection
+            if (!isNaN(uvLimit) && v < uvLimit) {
+
+                cellUVFault[i] = true;
+
+            } else {
+
+                cellUVFault[i] = false;
+
+            }
 
         }
 
-        if (cellOVFault[i] && !isNaN(ovRecovery) && v < ovRecovery) {
-
-            cellOVFault[i] = false;
-
-        }
-
+        // Reflects whatever fault state is current — real just now, or
+        // frozen from before the data was lost.
         if (cellOVFault[i]) overVoltage.push(i);
-
-        // Single Under Voltage Protection
-        if (!isNaN(uvLimit) && v < uvLimit) {
-
-            cellUVFault[i] = true;
-            underVoltage.push(i);
-
-        } else {
-
-            cellUVFault[i] = false;
-
-        }
+        if (cellUVFault[i]) underVoltage.push(i);
 
         // Equalizing Starting Voltage — which cells are actively balancing.
         // Only while the balancer is switched on: with it off, a cell over
@@ -5173,7 +5286,7 @@ function checkWarnings() {
         // Voltage; otherwise it's just pausing, so say that instead.
         if (wasBalancing && !isBalancing) {
 
-            const settled = !isNaN(startVoltage) && v <= startVoltage;
+            const settled = hasData && !isNaN(startVoltage) && v <= startVoltage;
 
             if (settled) logEvent(`✅ Cell ${i + 1} Balancing Successful`, "success");
             else logEvent(`⏸ Cell ${i + 1} Balancing Paused — Resting`, "info");
@@ -6412,6 +6525,12 @@ function showDisconnectModal() {
     // optional companion for streaming simulated data out, never a data
     // source, so it dropping is never a reason to prompt for reconnect.
     if (usingAutomaticValues()) return;
+
+    // A real disconnect always takes priority — hide any other full-screen
+    // overlay first so it can never sit hidden behind the log-folder prompt
+    // or a logout confirmation the operator happened to have open already.
+    hideLogFolderPrompt();
+    hideLogoutConfirm();
 
     const overlay = document.getElementById("disconnectOverlay");
 
