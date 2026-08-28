@@ -3517,8 +3517,10 @@ function liveDataTick() {
 
     checkWarnings();
 
-    // Only append to the CSV log while the BMS session is started
-    updateStats(running);
+    // Only append to the CSV log while the session is started AND idle —
+    // not while actively balancing, per the operator's request that
+    // balancing activity itself should not be recorded to the log.
+    updateStats(running && !balancingActive);
 
     updateBalancingDisplay();
 
@@ -3901,6 +3903,22 @@ function estimateBalanceSeconds() {
 
     if (difference <= 0) return null;
 
+    // Passive Stage 2 (close to the target — see passiveStageForVoltage()):
+    // this close to done, the rate-based math below is unreliable (tiny
+    // per-tick moves, taper effects), so a fixed budget is used instead —
+    // Stage 2's 10s-on/5s-off cycling is assumed to take up to 15 minutes
+    // total. Counts down from when Stage 2 was first entered (set once,
+    // below) rather than restarting at 15 minutes on every re-projection.
+    if (balancingMode === "passive" && passiveStageForVoltage(maxV, startVoltage) === 2) {
+
+        if (passiveStage2EnteredAt === null) passiveStage2EnteredAt = Date.now();
+
+        const remaining = 15 * 60 - (Date.now() - passiveStage2EnteredAt) / 1000;
+
+        return Math.max(1, remaining);
+
+    }
+
     // Pure balancing time if the balancer ran non-stop.
     //
     // Passive can run any number of cells at once (no cap), so it closes the
@@ -4209,6 +4227,13 @@ function resetBalanceEstimate() {
 // was built from.
 let lastEstimateDiff = null;
 const ESTIMATE_DIFF_STEP = 0.003;   // 3 mV — the "meaningful change" threshold
+
+// When the pack first entered Passive Stage 2 during THIS balance — set once
+// by estimateBalanceSeconds() itself, reset only at a fresh balance start
+// (never by maybeReestimateOnIdle()'s frequent mid-session re-projections),
+// so the fixed 15-minute Stage 2 budget counts down instead of restarting
+// to a fresh 15 minutes every time the estimate gets refreshed.
+let passiveStage2EnteredAt = null;
 
 // Re-projects COMPLETES AT as new data comes in. For a SIMULATED session,
 // only while the balancer is RESTING (idle) — the dashboard runs its own
@@ -5886,10 +5911,11 @@ function setManualBalancePair(sender, receiver) {
     // Show and project the completion time (COMPLETES AT) for this pair — the
     // Docklight-driven path and the START-resumes-pair path both come through
     // here, so the ETA has to be set up here too, not only in startBalancing().
-    // No ETA in Passive mode, same as startBalancing() — the estimate isn't
-    // reliable there given concurrency, staging, and per-cell tapers.
     const etaBox = document.getElementById("etaBox");
-    if (etaBox) etaBox.style.display = balancingMode === "passive" ? "none" : "block";
+    if (etaBox) etaBox.style.display = "block";
+
+    // Fresh balance, fresh Stage 2 budget if/when it's reached.
+    passiveStage2EnteredAt = null;
 
     resetBalanceEstimate();
 
@@ -6092,16 +6118,16 @@ async function startBalancing(transmit = true) {
 
     document.getElementById("balancingBox").style.display = "flex";
 
-    // COMPLETES AT is Active-only now — Passive's estimate wasn't reliable
-    // enough to be worth showing (concurrency, staging, and per-cell tapers
-    // make the "when will it finish" projection too rough to trust).
-    document.getElementById("etaBox").style.display = balancingMode === "passive" ? "none" : "block";
+    document.getElementById("etaBox").style.display = "block";
 
     // cellBalancing[] was computed on the last tick, when balancingActive
     // was still false — so every entry is false right now. Recompute it
     // before reading it, or the box opens claiming nothing is balancing
     // and stays wrong until liveDataTick() next comes around.
     checkWarnings();
+
+    // Fresh balance, fresh Stage 2 budget if/when it's reached.
+    passiveStage2EnteredAt = null;
 
     // Project the finish time once, from the pack as it stands now.
     resetBalanceEstimate();
@@ -6364,9 +6390,18 @@ function updateBalancingDisplay() {
             .map(i => `<span class="bal-dis">▼ Cell ${i + 1} ${cellVoltages[i].toFixed(3)} V</span>`)
             .join(" ");
 
-        // No COMPLETES AT for Passive — removed as unreliable given
-        // concurrency, staging, and per-cell tapers.
-        note.innerHTML = "";
+        // The completion time is FIXED: projected once when balancing starts
+        // and never re-calculated, same as Active — see estimateBalanceSeconds()
+        // for how the Passive taper (Stage 1/2, per-cell) is factored in.
+        const clock = balanceCompletionClock();
+
+        note.innerHTML = clock === null
+            ? "Set an Equalizing Current to estimate"
+            : `Completes at ${clock}`;
+
+        const eta = document.getElementById("balanceEta");
+
+        if (eta) eta.innerHTML = clock === null ? "--" : clock;
 
         return;
 
@@ -6750,9 +6785,13 @@ let graphChart = null;            // analysis chart: convergence|spread|gantt|en
 // sampled every live tick regardless of whether the graph is open, so the trend
 // already has data the moment it is opened.
 let graphHistory = [];
-// High cap so a full balancing session fits start→end (≈ 1 hour at a 1.5 s
-// tick). The oldest points still drop past this, but a normal session is well
-// within it, so each cell's chart shows the whole run.
+// Trimmed only while NOT actively balancing — so a running balance's history
+// is never cut short, however long it takes (Passive's Stage 2 alone can now
+// run up to 15 minutes, on top of however long Stage 1 takes), guaranteeing
+// each cell's chart spans the whole session start→end. Once stopped, this
+// cap keeps a long-idle session (graph left open for hours) from growing
+// memory forever — a fresh balance clears the history anyway (see
+// startBalancing()), so nothing meaningful is lost by capping afterward.
 const GRAPH_HISTORY_MAX = 2400;
 
 function recordGraphHistory() {
@@ -6775,7 +6814,7 @@ function recordGraphHistory() {
 
     graphHistory.push({ t: now, cells: cellVoltages.slice(), states, max: maxV, avg, min: minV });
 
-    if (graphHistory.length > GRAPH_HISTORY_MAX) graphHistory.shift();
+    if (!balancingActive && graphHistory.length > GRAPH_HISTORY_MAX) graphHistory.shift();
 
 }
 
@@ -6882,7 +6921,7 @@ function renderGraphCellNav() {
 
 }
 
-// Build the "Show" dropdown: All cells, then group filters (charging /
+// Build the "Show" dropdown: analysis charts, then group filters (charging /
 // discharging / normal / warning / critical), then every individual cell.
 // Rebuilt only when the cell count changes.
 function populateCellSelect() {
@@ -6893,10 +6932,7 @@ function populateCellSelect() {
     if (sel.dataset.count === String(CELL_COUNT)) return;
     sel.dataset.count = String(CELL_COUNT);
 
-    let html = `<option value="all">All cells (bars)</option>`;
-
-    html += `<optgroup label="Analysis charts">`;
-    html += `<option value="chart:multiples">🔲 All cells — separate mini-charts</option>`;
+    let html = `<optgroup label="Analysis charts">`;
     html += `<option value="chart:convergence">📉 Convergence band (Max/Avg/Min)</option>`;
     html += `<option value="chart:spread">📈 Spread closing (mV → target)</option>`;
     html += `<option value="chart:gantt">📊 Balancing timeline (per cell)</option>`;
