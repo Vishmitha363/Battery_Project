@@ -42,6 +42,12 @@ let cellVoltages = new Array(CELL_COUNT).fill(0);
 let cellOVFault = new Array(CELL_COUNT).fill(false);
 let cellUVFault = new Array(CELL_COUNT).fill(false);
 
+// Last known "Above/Below Safe Limit" cell lists — checkWarnings() reuses
+// these instead of an empty list when there's no real data right now (see
+// hasData there), so a lost connection doesn't look like the alert cleared.
+let lastAboveLimit = [];
+let lastBelowLimit = [];
+
 // true while a cell is currently above the balancing start voltage —
 // tracked separately so we can detect the moment it stops (completion)
 let cellBalancing = new Array(CELL_COUNT).fill(false);
@@ -3282,11 +3288,11 @@ async function startBMS(transmit = true) {
 
     }
 
-    // START no longer touches the log folder at all — the folder picker /
-    // permission dialog it used to open was stalling the whole session
-    // (RUNNING TIME stuck at 00:00:00, balancing refusing). Logging is now
-    // opt-in: set the folder once via the RESET LOG FOLDER button, and
-    // rows write from then on. START must always start the session.
+    // START itself never opens the folder picker directly — that dialog
+    // stalled the whole session once (RUNNING TIME stuck at 00:00:00,
+    // balancing refusing). The log-folder check above only refuses if
+    // logDirHandle isn't already set (from the login-time prompt or the
+    // Change Log Folder button); it never triggers the picker itself here.
 
     running = true;
 
@@ -3913,9 +3919,19 @@ function estimateBalanceSeconds() {
 
         if (passiveStage2EnteredAt === null) passiveStage2EnteredAt = Date.now();
 
-        const remaining = 15 * 60 - (Date.now() - passiveStage2EnteredAt) / 1000;
-
-        return Math.max(1, remaining);
+        // Deliberately NOT clamped to a minimum here. resetBalanceEstimate()
+        // turns this into balanceDeadlineAt = Date.now() + seconds*1000, which
+        // algebraically collapses to the fixed point
+        // passiveStage2EnteredAt + 15*60*1000 — the SAME instant no matter how
+        // many times it's re-projected. Clamping to a positive floor would
+        // break that: every re-projection past the 15-minute mark would then
+        // compute a fresh "1 second from now", so the deadline would keep
+        // chasing the current time instead of staying put — and
+        // checkBalanceCompletionVsEstimate() would always see a near-zero gap
+        // and report "on time" even for a Stage 2 that ran hours over. Letting
+        // this go negative past the budget keeps the anchor fixed, so an
+        // overrun is correctly measured and reported as late.
+        return 15 * 60 - (Date.now() - passiveStage2EnteredAt) / 1000;
 
     }
 
@@ -4290,14 +4306,17 @@ function balanceCompletionClock() {
 
 }
 
-// Once the pack has actually reached balanced (highest and lowest cell within
-// BALANCED_DIFF_V of each other, AND that tight cluster sits within
-// BALANCED_DIFF_V of the Equilibrium Limit Voltage LOW target rather than
-// incidentally bunched up well above it), check whether it finished by the
-// estimated COMPLETES AT time — and report ON TIME / early / late. Fires
-// exactly once per balancing session. Works for real and simulated data
-// alike, since it watches the live high−low difference, the same quantity
-// the estimate is built from.
+// Once the pack has actually reached balanced (the highest cell has come
+// down to within BALANCED_DIFF_V of the Equilibrium Limit Voltage LOW
+// target), check whether it finished by the estimated COMPLETES AT time —
+// and report ON TIME / early / late. Fires exactly once per balancing
+// session. Works for real and simulated data alike.
+//
+// Deliberately NOT gated on the pack's overall max-min spread — balancing
+// only ever acts on cells ABOVE the target, so a cell that was already
+// below it (and stays there) is not something the balancer was ever going
+// to fix. Requiring the whole pack to be tight would leave a genuinely
+// finished balance running forever just because of an unrelated low cell.
 function checkBalanceCompletionVsEstimate() {
 
     if (!balancingActive || balanceCompletionChecked) return;
@@ -4307,16 +4326,14 @@ function checkBalanceCompletionVsEstimate() {
     const highestNow = Math.max(...cellVoltages);
     const difference = highestNow - Math.min(...cellVoltages);
 
-    // Not balanced yet — keep waiting.
-    if (difference > BALANCED_DIFF_V) return;
-
-    // A tight cluster only counts as DONE if it has actually come down to
-    // the balancing limit (within the same BALANCED_DIFF_V tolerance —
-    // e.g. eqLow 2.800V allows up to 2.804V) — not a tight cluster sitting
-    // well above it (which isn't a finished balance, just a pack that
-    // happens to be even).
+    // Only counts as DONE once the highest cell has actually come down to
+    // the balancing limit (within BALANCED_DIFF_V tolerance — e.g. eqLow
+    // 2.800V allows up to 2.804V). No spread check backing this up anymore,
+    // so an unset/blank eqLow must refuse rather than silently skip the
+    // check — otherwise the very first tick of any real data would
+    // immediately "complete" with nothing to actually judge it against.
     const startV = parseFloat(document.getElementById("eqLow")?.value);
-    if (!isNaN(startV) && highestNow > startV + BALANCED_DIFF_V) return;
+    if (isNaN(startV) || highestNow > startV + BALANCED_DIFF_V) return;
 
     balanceCompletionChecked = true;
 
@@ -5198,8 +5215,6 @@ function checkWarnings() {
     const uvLimit = parseFloat(document.getElementById("uvProtection").value);
     const startVoltage = parseFloat(document.getElementById("eqLow").value);
 
-    const aboveLimit = [];
-    const belowLimit = [];
     const overVoltage = [];
     const underVoltage = [];
     const balancing = [];
@@ -5226,6 +5241,12 @@ function checkWarnings() {
     // real data resumes, rather than being false-derived from the zeroed
     // placeholder.
     const hasData = cellVoltages.length > 0 && Math.max(...cellVoltages) > 0;
+
+    // Same freezing as the OV/UV faults above: without real data, reuse the
+    // last known lists instead of rebuilding empty ones, so "Above/Below
+    // Safe Limit" doesn't falsely report itself cleared during a data gap.
+    const aboveLimit = hasData ? [] : lastAboveLimit;
+    const belowLimit = hasData ? [] : lastBelowLimit;
 
     for (let i = 0; i < CELL_COUNT; i++) {
 
@@ -5465,6 +5486,11 @@ function checkWarnings() {
         }
 
     }
+
+    // Remember this tick's lists for the next data gap — a no-op when
+    // hasData was false, since aboveLimit/belowLimit already ARE these.
+    lastAboveLimit = aboveLimit;
+    lastBelowLimit = belowLimit;
 
     // Per-cell transfer limit. Enforced here, right after the counts were
     // updated above, so a cell crossing the line is caught on the same
@@ -5903,6 +5929,11 @@ function setManualBalancePair(sender, receiver) {
         saveBalanceStats();
         updateBalancingCycleStat();
 
+        // Fresh balance, fresh Stage 2 budget if/when it's reached — NOT
+        // reset on a mid-session pair rename (startingFresh false), which
+        // must leave an already-running Stage 2 countdown alone.
+        passiveStage2EnteredAt = null;
+
     }
 
     const box = document.getElementById("balancingBox");
@@ -5913,9 +5944,6 @@ function setManualBalancePair(sender, receiver) {
     // here, so the ETA has to be set up here too, not only in startBalancing().
     const etaBox = document.getElementById("etaBox");
     if (etaBox) etaBox.style.display = "block";
-
-    // Fresh balance, fresh Stage 2 budget if/when it's reached.
-    passiveStage2EnteredAt = null;
 
     resetBalanceEstimate();
 
@@ -6794,6 +6822,14 @@ let graphHistory = [];
 // startBalancing()), so nothing meaningful is lost by capping afterward.
 const GRAPH_HISTORY_MAX = 2400;
 
+// Backstop for a genuinely marathon real-hardware balance (many hours) with
+// the tab left open the whole time — applies even while balancingActive, so
+// memory can't grow forever. ~100,000 entries is ~41 hours at the 1.5s tick,
+// far beyond any balance this dashboard's own estimates ever project, so it
+// only ever matters in a real edge case, not a normal (or even a very slow)
+// session.
+const GRAPH_HISTORY_HARD_MAX = 100000;
+
 function recordGraphHistory() {
 
     if (!cellVoltages.length) return;
@@ -6815,6 +6851,8 @@ function recordGraphHistory() {
     graphHistory.push({ t: now, cells: cellVoltages.slice(), states, max: maxV, avg, min: minV });
 
     if (!balancingActive && graphHistory.length > GRAPH_HISTORY_MAX) graphHistory.shift();
+
+    if (graphHistory.length > GRAPH_HISTORY_HARD_MAX) graphHistory.shift();
 
 }
 
