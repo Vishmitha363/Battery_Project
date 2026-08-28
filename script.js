@@ -4261,9 +4261,12 @@ let passiveStage2EnteredAt = null;
 // the very first real cell frame arrived (cellVoltages still all 0 at the
 // moment START was pressed) would stay null forever, since nothing else
 // would ever re-trigger the projection for a real device.
-// Either way, only re-projects when the highest cell's distance above the
-// Starting Voltage has moved by at least ESTIMATE_DIFF_STEP, so the time
-// doesn't jump around for tiny changes.
+// Either way, re-projects when the highest cell's distance above the
+// Starting Voltage has moved by at least ESTIMATE_DIFF_STEP (so the time
+// doesn't jump around for tiny changes), OR when the clock has simply run
+// past the current projection with balancing still not done — otherwise a
+// stalled estimate would sit on screen showing a time already in the past
+// until the next meaningful voltage move happened to come along.
 function maybeReestimateOnIdle() {
 
     if (!balancingActive || !cellVoltages.length) return;
@@ -4276,7 +4279,9 @@ function maybeReestimateOnIdle() {
 
     const diff = Math.max(...cellVoltages) - startVoltage;
 
-    if (lastEstimateDiff === null || Math.abs(diff - lastEstimateDiff) >= ESTIMATE_DIFF_STEP) {
+    const overdue = balanceDeadlineAt !== null && Date.now() > balanceDeadlineAt;
+
+    if (overdue || lastEstimateDiff === null || Math.abs(diff - lastEstimateDiff) >= ESTIMATE_DIFF_STEP) {
         resetBalanceEstimate();   // re-projects and refreshes lastEstimateDiff
     }
 
