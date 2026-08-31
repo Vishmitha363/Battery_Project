@@ -4329,7 +4329,6 @@ function checkBalanceCompletionVsEstimate() {
     if (cellVoltages.length < 2 || Math.max(...cellVoltages) <= 0) return;
 
     const highestNow = Math.max(...cellVoltages);
-    const difference = highestNow - Math.min(...cellVoltages);
 
     // Only counts as DONE once the highest cell has actually come down to
     // the balancing limit (within BALANCED_DIFF_V tolerance — e.g. eqLow
@@ -4385,7 +4384,11 @@ function checkBalanceCompletionVsEstimate() {
     balancingCompletedCount++;
     saveBalanceStats();
 
-    logEvent(`✅ Balancing Complete — Pack Balanced (${difference.toFixed(3)} V spread)`, "success");
+    // Named after the actual gating quantity (highest cell vs. eqLow), not
+    // pack spread — spread can still be large here (a cell already below
+    // target isn't part of what the balancer was closing), so calling it
+    // "Pack Balanced (X V spread)" would misleadingly imply a tight pack.
+    logEvent(`✅ Balancing Complete — Highest Cell Settled To ${highestNow.toFixed(3)} V (Target ${startV.toFixed(3)} V)`, "success");
     showStatus("✅ Balancing Complete — Auto-Stopped", "success");
 
     // Stop the whole session if START ran it; otherwise just stop balancing
@@ -5778,11 +5781,14 @@ function underVoltageCells() {
 // within this much of each other. Deliberately NOT the Equalizing
 // Differential Voltage setting: that defaults to 1.5 V — a loose "this pack
 // is badly out" warning threshold — and using it here would call almost any
-// real pack balanced and refuse to ever start. This is also the one and
-// only auto-stop condition (see checkBalanceCompletionVsEstimate()) — a
-// running balance is left alone until the spread actually closes to this,
-// never stopped for any other reason (idle channels, a duty-cycle rest, a
-// real board briefly reporting "BAL CELLS: NONE").
+// real pack balanced and refuse to ever start. Also the tolerance
+// checkBalanceCompletionVsEstimate() uses for its own (different) auto-stop
+// definition — see that function's own comment: it only requires the
+// HIGHEST cell within this much of the eqLow target, not the whole pack's
+// spread, so it can auto-stop while this spread-based "Balanced" reading
+// elsewhere (packHealth(), the progress bar, the spread chart) still shows
+// the pack as not fully even — a low cell balancing was never going to fix
+// doesn't count against the balancer's own job being done.
 const BALANCED_DIFF_V = 0.004;
 
 // Returns false when there is nothing to judge (no readings yet, so every
@@ -6423,9 +6429,10 @@ function updateBalancingDisplay() {
             .map(i => `<span class="bal-dis">▼ Cell ${i + 1} ${cellVoltages[i].toFixed(3)} V</span>`)
             .join(" ");
 
-        // The completion time is FIXED: projected once when balancing starts
-        // and never re-calculated, same as Active — see estimateBalanceSeconds()
-        // for how the Passive taper (Stage 1/2, per-cell) is factored in.
+        // Projected here at the moment balancing starts, then kept up to date
+        // by maybeReestimateOnIdle() (re-projects on a meaningful voltage move
+        // or once this time is overdue) — see estimateBalanceSeconds() for how
+        // the Passive taper (Stage 1/2, per-cell) is factored in.
         const clock = balanceCompletionClock();
 
         note.innerHTML = clock === null
@@ -6471,9 +6478,9 @@ function updateBalancingDisplay() {
 
     list.innerHTML = rows.join(" ");
 
-    // The completion time is FIXED: it is projected ONCE when balancing starts
-    // and never re-calculated, so COMPLETES AT stays put for the whole balance
-    // instead of drifting. (No re-projection here on purpose.)
+    // Projected here at the moment balancing starts, then kept up to date by
+    // maybeReestimateOnIdle() (re-projects on a meaningful voltage move or
+    // once this time is overdue) rather than drifting untouched forever.
     const clock = balanceCompletionClock();
 
     // Show the clock time it should finish, not a countdown. No rate means
