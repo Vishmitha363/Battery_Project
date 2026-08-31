@@ -1822,6 +1822,12 @@ async function disconnectRealDevice() {
     // would make the walk clamp 0V straight up to its 3.0V floor.
     if (!simulationEnabled) zeroOutCellVoltages();
 
+    // The board's last "BAL CELLS" report is stale too — if it disconnected
+    // mid-Passive-balance with cells still bleeding, this would otherwise
+    // survive into the NEXT connection and immediately gate the first
+    // completion estimate as "busy" until a fresh report happened to arrive.
+    manualPassiveCells = null;
+
 }
 
 if ("serial" in navigator) {
@@ -3871,12 +3877,13 @@ function balanceRateIsMeasured() {
 // Exactly one cell discharges at a time, because balancing runs between
 // two cells. So the pack sheds its whole excess at that single rate,
 // however many cells are over the threshold — they simply take turns.
+// Works for both Active and Passive.
 function estimateBalanceSeconds() {
 
     // Completion time is built from four things:
     //   1. the Equalizing Current      → how fast a cell drains (the rate)
-    //   2. the balancing ON time (40 s) → duty cycle
-    //   3. the interval OFF time (5 s)  → duty cycle
+    //   2. the balancing ON time       → duty cycle
+    //   3. the interval OFF time       → duty cycle
     //   4. the HIGH cell's distance above the Starting Voltage → how much
     //      there is to close
 
@@ -3909,51 +3916,27 @@ function estimateBalanceSeconds() {
 
     if (difference <= 0) return null;
 
-    // Passive Stage 2 (close to the target — see passiveStageForVoltage()):
-    // this close to done, the rate-based math below is unreliable (tiny
-    // per-tick moves, taper effects), so a fixed budget is used instead —
-    // Stage 2's 10s-on/5s-off cycling is assumed to take up to 15 minutes
-    // total. Counts down from when Stage 2 was first entered (set once,
-    // below) rather than restarting at 15 minutes on every re-projection.
-    if (balancingMode === "passive" && passiveStageForVoltage(maxV, startVoltage) === 2) {
-
-        if (passiveStage2EnteredAt === null) passiveStage2EnteredAt = Date.now();
-
-        // Deliberately NOT clamped to a minimum here. resetBalanceEstimate()
-        // turns this into balanceDeadlineAt = Date.now() + seconds*1000, which
-        // algebraically collapses to the fixed point
-        // passiveStage2EnteredAt + 15*60*1000 — the SAME instant no matter how
-        // many times it's re-projected. Clamping to a positive floor would
-        // break that: every re-projection past the 15-minute mark would then
-        // compute a fresh "1 second from now", so the deadline would keep
-        // chasing the current time instead of staying put — and
-        // checkBalanceCompletionVsEstimate() would always see a near-zero gap
-        // and report "on time" even for a Stage 2 that ran hours over. Letting
-        // this go negative past the budget keeps the anchor fixed, so an
-        // overrun is correctly measured and reported as late.
-        return 15 * 60 - (Date.now() - passiveStage2EnteredAt) / 1000;
-
-    }
-
     // Pure balancing time if the balancer ran non-stop.
     //
-    // Passive can run any number of cells at once (no cap), so it closes the
-    // same total excess faster the more cells are currently eligible — a
-    // rough approximation using the CURRENT count, same spirit as the rest
-    // of this estimate, not an exact model of the per-cell scheduler.
-    const passiveConcurrency = Math.max(1, balancingCellIndices().length);
-
-    const pureSeconds = balancingMode === "passive"
-        ? (difference / rate) / passiveConcurrency
-        : difference / rate;
+    // Same formula for both modes — Passive bleeds each eligible cell
+    // through its OWN independent resistor at the configured current, so
+    // the highest cell's own time to close its own excess depends only on
+    // its own rate, not on how many OTHER cells happen to be bleeding at the
+    // same time (unlike Active's single shared transfer path). Dividing by
+    // how many cells are concurrently eligible was tried here before and
+    // removed — it made the estimate arbitrarily more optimistic the more
+    // cells were eligible, without modeling anything physically real, since
+    // parallel per-cell resistors don't speed up any one cell's own drain.
+    const pureSeconds = difference / rate;
 
     // 2 & 3. Duty cycle: balance for ON seconds, rest for OFF seconds,
-    // repeating (40 s / 5 s from EQ Settings). Add one OFF gap after each full
-    // ON block but the last, so the wall-clock finish time includes the rests.
-    // Passive has no single fixed ON time (each cell tapers on its own), so a
+    // repeating. Add one OFF gap after each full ON block but the last, so
+    // the wall-clock finish time includes the rests. Passive has no single
+    // fixed ON time (each cell tapers between Stage 1 and Stage 2), so a
     // representative burst length is used here — the taper evaluated at the
     // current highest cell, same formula advancePassiveCellTimers() uses per
-    // cell.
+    // cell. No special-cased fixed budget for either stage — this is the
+    // same rate-based math throughout.
     const onS = balancingMode === "passive"
         ? passiveOnSecondsForVoltage(maxV, startVoltage)
         : balanceOnSeconds();
@@ -4244,34 +4227,48 @@ function resetBalanceEstimate() {
 let lastEstimateDiff = null;
 const ESTIMATE_DIFF_STEP = 0.003;   // 3 mV — the "meaningful change" threshold
 
-// When the pack first entered Passive Stage 2 during THIS balance — set once
-// by estimateBalanceSeconds() itself, reset only at a fresh balance start
-// (never by maybeReestimateOnIdle()'s frequent mid-session re-projections),
-// so the fixed 15-minute Stage 2 budget counts down instead of restarting
-// to a fresh 15 minutes every time the estimate gets refreshed.
-let passiveStage2EnteredAt = null;
-
-// Re-projects COMPLETES AT as new data comes in. For a SIMULATED session,
-// only while the balancer is RESTING (idle) — the dashboard runs its own
-// duty cycle, so mid-burst voltages are moving fast and re-projecting then
-// would make the ETA jump around constantly. For a REAL DEVICE connection
-// there is no dashboard-tracked rest phase to wait for at all (the board
-// runs its own duty cycle, invisible to this scheduler) — so it checks
-// every tick instead. Without this, an estimate that came back null before
-// the very first real cell frame arrived (cellVoltages still all 0 at the
-// moment START was pressed) would stay null forever, since nothing else
-// would ever re-trigger the projection for a real device.
-// Either way, re-projects when the highest cell's distance above the
-// Starting Voltage has moved by at least ESTIMATE_DIFF_STEP (so the time
-// doesn't jump around for tiny changes), OR when the clock has simply run
-// past the current projection with balancing still not done — otherwise a
-// stalled estimate would sit on screen showing a time already in the past
-// until the next meaningful voltage move happened to come along.
+// Re-projects COMPLETES AT as new data comes in — only during an actual
+// BREAK, never mid-burst, so a fast-moving voltage doesn't make the ETA
+// jump around constantly. What counts as "a break" depends on how much
+// visibility there is into the real duty cycle:
+//   - SIMULATED session: the dashboard runs the duty cycle itself, so
+//     balancerResting() is exact.
+//   - REAL DEVICE, Passive: the board's own "BAL CELLS: NONE" report
+//     (manualPassiveCells) is a genuine idle signal — wait for that.
+//   - REAL DEVICE, Active: no such signal exists at all (no report ever
+//     tells the dashboard when the real board itself is between transfers)
+//     — checks every tick, same as before. Without this fallback, an
+//     estimate that came back null before the very first real cell frame
+//     arrived would stay null forever, since nothing else would ever
+//     re-trigger the projection for a real Active device.
+// Either way, once it's a break, re-projects when the highest cell's
+// distance above the Starting Voltage has moved by at least
+// ESTIMATE_DIFF_STEP (so the time doesn't jump around for tiny changes), OR
+// when the clock has simply run past the current projection with balancing
+// still not done — otherwise a stalled estimate would sit on screen showing
+// a time already in the past until the next meaningful voltage move
+// happened to come along.
 function maybeReestimateOnIdle() {
 
     if (!balancingActive || !cellVoltages.length) return;
 
     if (simulationEnabled && !balancerResting()) return;
+
+    // Real-device Passive: wait for the board to report the HIGHEST cell
+    // specifically as idle — not the whole pack. The estimate is built from
+    // that one cell's own excess and rate, but Passive lets many cells bleed
+    // at once, so "the whole pack idle" is a much rarer moment than "this
+    // one cell idle" and would leave the estimate stale for most of a
+    // multi-cell session. A null manualPassiveCells means no report has
+    // arrived yet — treated as "no signal", not "busy", so the very first
+    // estimate can still be made rather than waiting forever for a report.
+    if (!simulationEnabled && balancingMode === "passive" && manualPassiveCells !== null) {
+
+        const highestIdx = cellVoltages.indexOf(Math.max(...cellVoltages));
+
+        if (manualPassiveCells.includes(highestIdx)) return;
+
+    }
 
     const startVoltage = parseFloat(document.getElementById("eqLow").value);
 
@@ -4284,16 +4281,6 @@ function maybeReestimateOnIdle() {
     if (overdue || lastEstimateDiff === null || Math.abs(diff - lastEstimateDiff) >= ESTIMATE_DIFF_STEP) {
         resetBalanceEstimate();   // re-projects and refreshes lastEstimateDiff
     }
-
-}
-
-// Seconds left on the frozen projection. Never negative: a balance that
-// overruns its estimate reads "1s", not a growing negative number.
-function balanceSecondsRemaining() {
-
-    if (balanceDeadlineAt === null) return null;
-
-    return Math.max(0, (balanceDeadlineAt - Date.now()) / 1000);
 
 }
 
@@ -4313,9 +4300,10 @@ function balanceCompletionClock() {
 
 // Once the pack has actually reached balanced (the highest cell has come
 // down to within BALANCED_DIFF_V of the Equilibrium Limit Voltage LOW
-// target), check whether it finished by the estimated COMPLETES AT time —
-// and report ON TIME / early / late. Fires exactly once per balancing
-// session. Works for real and simulated data alike.
+// target), auto-stop the session and report ON TIME / early / late against
+// the estimated COMPLETES AT — for BOTH Active and Passive, since both now
+// project one (see estimateBalanceSeconds()). Fires exactly once per
+// balancing session.
 //
 // Deliberately NOT gated on the pack's overall max-min spread — balancing
 // only ever acts on cells ABOVE the target, so a cell that was already
@@ -4402,9 +4390,9 @@ function checkBalanceCompletionVsEstimate() {
 // auto-stop) was removed — it could fire on a passing gap between cells
 // (or a real board's normal OFF-phase "BAL CELLS: NONE") well before the
 // pack was actually balanced, which was the cause of the premature
-// "Balancing Complete" reports seen during testing. Auto-stop now happens
-// only from checkBalanceCompletionVsEstimate()'s spread check, the single
-// source of truth for "is this pack actually done".
+// "Balancing Complete" reports seen during testing. Auto-stop-on-completion
+// now happens only from checkBalanceCompletionVsEstimate() (highest cell vs.
+// eqLow, not spread) — for both Active and Passive.
 
 // Plain informational count of today's balancing — no limit, since the
 // whole-pack cycle limit was removed. Shows completed cycles, with how
@@ -5940,11 +5928,6 @@ function setManualBalancePair(sender, receiver) {
         saveBalanceStats();
         updateBalancingCycleStat();
 
-        // Fresh balance, fresh Stage 2 budget if/when it's reached — NOT
-        // reset on a mid-session pair rename (startingFresh false), which
-        // must leave an already-running Stage 2 countdown alone.
-        passiveStage2EnteredAt = null;
-
     }
 
     const box = document.getElementById("balancingBox");
@@ -6164,9 +6147,6 @@ async function startBalancing(transmit = true) {
     // before reading it, or the box opens claiming nothing is balancing
     // and stays wrong until liveDataTick() next comes around.
     checkWarnings();
-
-    // Fresh balance, fresh Stage 2 budget if/when it's reached.
-    passiveStage2EnteredAt = null;
 
     // Project the finish time once, from the pack as it stands now.
     resetBalanceEstimate();
@@ -6826,12 +6806,11 @@ let graphChart = null;            // analysis chart: convergence|spread|gantt|en
 // already has data the moment it is opened.
 let graphHistory = [];
 // Trimmed only while NOT actively balancing — so a running balance's history
-// is never cut short, however long it takes (Passive's Stage 2 alone can now
-// run up to 15 minutes, on top of however long Stage 1 takes), guaranteeing
-// each cell's chart spans the whole session start→end. Once stopped, this
-// cap keeps a long-idle session (graph left open for hours) from growing
-// memory forever — a fresh balance clears the history anyway (see
-// startBalancing()), so nothing meaningful is lost by capping afterward.
+// is never cut short no matter how long it takes, guaranteeing each cell's
+// chart spans the whole session start→end. Once stopped, this cap keeps a
+// long-idle session (graph left open for hours) from growing memory
+// forever — a fresh balance clears the history anyway (see startBalancing()),
+// so nothing meaningful is lost by capping afterward.
 const GRAPH_HISTORY_MAX = 2400;
 
 // Backstop for a genuinely marathon real-hardware balance (many hours) with
