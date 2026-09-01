@@ -3971,7 +3971,13 @@ function estimateBalanceSeconds() {
 
     const gaps = Math.max(0, Math.ceil(pureSeconds / onS) - 1);
 
-    return pureSeconds + gaps * offS;
+    const estimate = pureSeconds + gaps * offS;
+
+    // Passive gets an extra 30-minute buffer on top of the raw calculation
+    // — the taper/concurrency approximations above are rougher for Passive
+    // than Active's single-pair math, so this pads the projection to be
+    // less likely to under-promise.
+    return balancingMode === "passive" ? estimate + 30 * 60 : estimate;
 
 }
 
