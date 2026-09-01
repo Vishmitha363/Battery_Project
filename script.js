@@ -1083,8 +1083,6 @@ function detectPlainBalancingCommand() {
 
     if (lastPair) {
 
-        console.log("[BAL parse] pair sender=" + lastPair[1] + " receiver=" + lastPair[2] + " (v2 parser)");
-
         setManualBalancePair(
             parseInt(lastPair[1], 10) - 1,
             parseInt(lastPair[2], 10) - 1
@@ -1178,12 +1176,6 @@ function detectParamsReport() {
 // by newlines, e.g.:
 // $CELL01:3500mV,CELL02:3400mV,CELL03:3600mV,CELL04:3600mV,CELL05:3200mV#
 function handleRealDeviceChunk(chunk) {
-
-    // Temporary raw diagnostic — shows exactly what bytes arrive,
-    // regardless of whether they match the expected $...# framing.
-    // JSON.stringify reveals hidden characters (\r, \n, control
-    // bytes) that a plain console.log would hide.
-    console.log("Raw chunk from device:", JSON.stringify(chunk));
 
     // Plain-text status messages (watchdog / AFE / balancer) are detected
     // on a SEPARATE rolling buffer, NOT on realLineBuffer. The $...# frame
@@ -2724,8 +2716,12 @@ window.addEventListener("DOMContentLoaded", () => {
     // If the BMS device was already granted permission (e.g. the one
     // connected at login), pick it back up automatically here — the
     // user shouldn't have to click "Connect Real Device" a second
-    // time for the same physical device.
-    autoConnectRealDevice();
+    // time for the same physical device. Never for Automatic Values — an
+    // operator who explicitly chose simulated data shouldn't see a
+    // "connect a device" error on every login, and shouldn't have their
+    // choice silently overridden the moment a stale authorized port opens
+    // and starts sending real $CELL data.
+    if (!usingAutomaticValues()) autoConnectRealDevice();
 
 });
 
@@ -7591,51 +7587,6 @@ function renderAnalysisChart(type, F) {
         return gdef + `<line x1="${padL}" y1="${baseline}" x2="${W - padR}" y2="${baseline}" class="g-axis"/>` + grid + bars + yTitle("Number of cells") + xTitle("Voltage distribution — a tight peak means a balanced pack");
     }
 
-    // =================================================================
-    if (type === "multiples") {
-
-        // Small multiples — a grid of one mini line-chart PER cell, so every
-        // cell is shown separately (its own panel) at the same time.
-        if (hist.length < 2) return collecting;
-        const t0 = hist[0].t, t1 = hist[hist.length - 1].t, span = Math.max(1, t1 - t0);
-
-        const cols = Math.ceil(Math.sqrt(n));
-        const rows = Math.ceil(n / cols);
-        const gx = 8, gy = 8;
-        const x0 = 34, y0 = 14, x1 = W - 12, y1 = H - 10;
-        const cw = (x1 - x0 - gx * (cols - 1)) / cols;
-        const ch = (y1 - y0 - gy * (rows - 1)) / rows;
-
-        let out = "";
-        for (let i = 0; i < n; i++) {
-            const r = Math.floor(i / cols), c = i % cols;
-            const bx = x0 + c * (cw + gx), by = y0 + r * (ch + gy);
-            const col = GRAPH_GROUP_COLOR[graphCellGroup(i)];
-
-            out += `<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${cw.toFixed(1)}" height="${ch.toFixed(1)}" rx="6" fill="#eef2f8" opacity="0.55" stroke="#e2e8f0" stroke-width="1"/>`;
-
-            const pp = hist.filter(p => p.cells && p.cells[i] !== undefined);
-            if (pp.length >= 2) {
-                let lo = Math.min(...pp.map(p => p.cells[i])), hi = Math.max(...pp.map(p => p.cells[i]));
-                const pad = Math.max(0.005, (hi - lo) * 0.2);
-                lo -= pad; hi += pad; if (hi - lo < 0.01) hi = lo + 0.01;
-                const top = by + 20, bot = by + ch - 6, left = bx + 6, right = bx + cw - 6;
-                const mx = t => left + (right - left) * ((t - t0) / span);
-                const my = v => top + (bot - top) * (1 - (v - lo) / (hi - lo));
-                const line = pp.map(p => [mx(p.t), my(p.cells[i])]);
-                out += `<path d="${smoothD(line)}" fill="none" stroke="${col}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" style="filter:drop-shadow(0 0 2px ${col}88)"/>`;
-                const last = line[line.length - 1];
-                out += `<circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="2.4" fill="${col}"/>`;
-            }
-
-            const cur = (cellVoltages[i] !== undefined) ? cellVoltages[i] : 0;
-            out += `<text x="${(bx + 6).toFixed(1)}" y="${(by + 13).toFixed(1)}" style="fill:${col};font-size:11px;font-weight:800">C${i + 1}</text>`;
-            out += `<text x="${(bx + cw - 6).toFixed(1)}" y="${(by + 13).toFixed(1)}" text-anchor="end" style="fill:#111827;font-size:10.5px;font-weight:700">${cur.toFixed(3)}</text>`;
-        }
-
-        return out;
-    }
-
     return collecting;
 }
 
@@ -7817,7 +7768,6 @@ function renderGraph() {
     if (helpEl) {
         if (graphChart) {
             const chartHelp = {
-                multiples: "🔲 Every cell shown separately — a grid of 16 mini-charts, one per cell, each plotting that cell's voltage over the session (line colour = state). Scan them all at once; the number top-right is the live voltage.",
                 convergence: "📉 Pack Max, Average and Min voltage over time. The shaded band between Max and Min narrows as the cells come together — a thin band means balanced.",
                 spread: "📈 The imbalance (Max − Min) in mV over time, heading down toward the balanced target (dashed line). How fast it drops shows how well balancing is working.",
                 gantt: "📊 A timeline per cell: coloured blocks show when each cell was discharging (red) or charging (green). Blank = idle. Reveals which cells did the work and the duty-cycle rhythm.",
