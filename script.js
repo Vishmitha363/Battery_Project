@@ -2546,12 +2546,33 @@ const EQ_SETTING_IDS = [
     "balanceOnTime", "balanceOffTime", "overBalWarnLimit"
 ];
 
+// Active and Passive each remember their OWN Equalization Settings —
+// switching modes at login switches which set of values loads, rather than
+// sharing one global settings sheet. These are the fallback values used the
+// first time a given mode has never had anything saved for it yet.
+const EQ_MODE_DEFAULTS = {
+    active: {
+        eqHigh: "4.000", eqLow: "3.650", diffLimit: "1.5", currentLimit: "0",
+        stringCount: "16", ovProtection: "3.800", ovRecovery: "3.600",
+        uvProtection: "2.750", pressureLimit: "80.000",
+        balanceOnTime: "40", balanceOffTime: "5", overBalWarnLimit: "10"
+    },
+    passive: {
+        eqHigh: "3.700", eqLow: "2.800", diffLimit: "0.01", currentLimit: "2.5",
+        stringCount: "16", ovProtection: "3.800", ovRecovery: "3.600",
+        uvProtection: "2.750", pressureLimit: "90.000",
+        balanceOnTime: "60", balanceOffTime: "5", overBalWarnLimit: "0"
+    }
+};
+
 // The charge/discharge count at which a cell is flagged as over-balancing.
 // Set in Equalization Settings; defaults to 10.
 function overBalWarnLimit() {
 
+    // 0 is a valid, literal limit — not "unset" — so a cell warns the
+    // instant its count reaches it, same as any other configured value.
     const v = parseInt(document.getElementById("overBalWarnLimit")?.value, 10);
-    return !isNaN(v) && v > 0 ? v : 10;
+    return !isNaN(v) && v >= 0 ? v : 10;
 
 }
 
@@ -2559,7 +2580,9 @@ function saveEqSetting(id) {
 
     const input = document.getElementById(id);
 
-    if (input) localStorage.setItem(`eqSetting_${id}`, input.value);
+    // Namespaced by mode — Active and Passive keep independent values, so
+    // switching modes at login never overwrites the other mode's settings.
+    if (input) localStorage.setItem(`eqSetting_${balancingMode}_${id}`, input.value);
 
     // The completion time is FIXED once a balance starts — changing the
     // Equalizing Current / Starting Voltage / duty times mid-balance does NOT
@@ -2586,15 +2609,22 @@ function saveAllSettings() {
 
 function loadEqSettings() {
 
+    const modeDefaults = EQ_MODE_DEFAULTS[balancingMode] || EQ_MODE_DEFAULTS.active;
+
     EQ_SETTING_IDS.forEach(id => {
 
-        const saved = localStorage.getItem(`eqSetting_${id}`);
+        // This mode's own saved value if it's ever been set, otherwise this
+        // mode's default — never the other mode's saved value, and never
+        // just whatever the HTML happens to say.
+        const saved = localStorage.getItem(`eqSetting_${balancingMode}_${id}`);
 
-        if (saved === null) return;
+        const value = saved !== null ? saved : modeDefaults[id];
+
+        if (value === undefined) return;
 
         const input = document.getElementById(id);
 
-        if (input) input.value = saved;
+        if (input) input.value = value;
 
     });
 
@@ -5023,8 +5053,8 @@ function save(parameter, valueId, lowId) {
         // HIGH and LOW share one SET button, but only transmit
         // whichever one(s) actually changed — otherwise touching just
         // LOW still re-sends HIGH's unchanged value every time.
-        const previousHigh = parseFloat(localStorage.getItem(`eqSetting_${valueId}`));
-        const previousLow = parseFloat(localStorage.getItem(`eqSetting_${lowId}`));
+        const previousHigh = parseFloat(localStorage.getItem(`eqSetting_${balancingMode}_${valueId}`));
+        const previousLow = parseFloat(localStorage.getItem(`eqSetting_${balancingMode}_${lowId}`));
 
         saveEqSetting(valueId);
         saveEqSetting(lowId);
