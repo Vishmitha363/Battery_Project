@@ -912,6 +912,8 @@ async function readRealDeviceLoop() {
 
                     showDisconnectModal();
 
+                    scheduleAutoReconnect(closingPort);
+
                 }
 
             }, 300);
@@ -938,7 +940,46 @@ async function readRealDeviceLoop() {
         // login page automatically.
         showDisconnectModal();
 
+        scheduleAutoReconnect(closingPort);
+
     }
+
+}
+
+// Gives a genuine disconnect one automatic chance to recover on its own
+// before making the operator click Reconnect — many drops (a brief USB
+// blip, a com0com hiccup) clear up on their own if given a moment. Reuses
+// the SAME port object, same as the fast line-glitch retry above, just
+// with a much longer wait since this is the "something is actually
+// wrong" path rather than a transient byte-level error. Never asks for a
+// NEW port (that needs a user gesture) — only reopens one already granted.
+function scheduleAutoReconnect(port) {
+
+    if (!port) return;
+
+    setTimeout(async () => {
+
+        // Already handled by the time the timer fires — a manual Reconnect
+        // succeeded, the operator logged out, or a fresh connection is
+        // already open — so don't step on any of that.
+        if (loggingOut || realDeviceConnected) return;
+
+        const reconnected = await connectToPort(port);
+
+        if (reconnected) {
+
+            hideDisconnectModal();
+
+            showStatus("🔌 Device Reconnected Automatically", "success");
+            logEvent("🔌 Real Device Reconnected Automatically", "success");
+
+        }
+
+        // Failed — leave the disconnect modal up exactly as it was; the
+        // operator can still Reconnect (picks a port, possibly a new one)
+        // or Logout. Only one automatic attempt, not a retry loop.
+
+    }, 10000);
 
 }
 
