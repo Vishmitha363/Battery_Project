@@ -2736,11 +2736,9 @@ window.addEventListener("DOMContentLoaded", () => {
     updateFooterClock();
     setInterval(updateFooterClock, 1000);
 
-    // Its own 1s timer, separate from the 1.5s liveDataTick — so the "last
-    // frame Ns ago" counter advances through every whole second (2, 3, 4,
-    // 5...) instead of skipping some numbers, which is what rounding a
-    // 1.5s-spaced sample to the nearest second would otherwise do.
-    setInterval(updateDeviceFreshness, 1000);
+    // Its own timer, separate from the 1.5s liveDataTick — checks every 5s
+    // rather than every second, per the operator's request.
+    setInterval(updateDeviceFreshness, 5000);
 
     // Restore today's running balancing tally before the first render, so
     // a mid-day reload shows the accumulated counts rather than zeros.
