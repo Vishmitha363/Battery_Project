@@ -514,6 +514,12 @@ let realReader = null;
 let realDeviceConnected = false;
 let realLineBuffer = "";
 
+// Unlike realPort (nulled the moment a disconnect is detected), this stays
+// set to whatever port was last successfully opened — so Reconnect and the
+// auto-reconnect window can both try the SAME port again directly, without
+// needing a fresh user gesture through the port picker.
+let lastKnownPort = null;
+
 // com0com virtual ports can raise a transient "BreakError: Break received"
 // (a line glitch, often around a write) that errors the read stream. That is
 // NOT a real unplug, so instead of tearing down the session we reopen the same
@@ -751,6 +757,7 @@ async function connectToPort(candidate) {
     }
 
     realPort = candidate;
+    lastKnownPort = candidate;
 
     setDeviceStatus(true);
 
@@ -910,9 +917,9 @@ async function readRealDeviceLoop() {
 
                     }
 
-                    showDisconnectModal();
+                    zeroOutCellVoltages();
 
-                    scheduleAutoReconnect(closingPort);
+                    startAutoReconnectWindow(closingPort);
 
                 }
 
@@ -935,31 +942,44 @@ async function readRealDeviceLoop() {
 
         }
 
-        // Ask the operator what to do — reconnect the device or log out —
-        // right here in the dashboard, instead of yanking them back to the
-        // login page automatically.
-        showDisconnectModal();
+        // A dropped connection means the last readings are no longer real —
+        // show it right away rather than leaving a frozen "live-looking"
+        // pack on screen for however long reconnecting takes.
+        zeroOutCellVoltages();
 
-        scheduleAutoReconnect(closingPort);
+        startAutoReconnectWindow(closingPort);
 
     }
 
 }
 
-// Gives a genuine disconnect one automatic chance to recover on its own
-// before making the operator click Reconnect — many drops (a brief USB
-// blip, a com0com hiccup) clear up on their own if given a moment. Reuses
-// the SAME port object, same as the fast line-glitch retry above, just
-// with a much longer wait since this is the "something is actually
-// wrong" path rather than a transient byte-level error. Never asks for a
-// NEW port (that needs a user gesture) — only reopens one already granted.
-function scheduleAutoReconnect(port) {
+// How long a genuine disconnect is given to recover on its own, retrying
+// silently in the background, before bothering the operator with the
+// Reconnect/Logout prompt at all.
+const AUTO_RECONNECT_WINDOW_MS = 5 * 60 * 1000;   // 5 minutes
+const AUTO_RECONNECT_INTERVAL_MS = 10000;          // retry every 10s
 
-    if (!port) return;
+// Keeps retrying the SAME port (never asks for a NEW one — that needs a
+// user gesture) every AUTO_RECONNECT_INTERVAL_MS for up to
+// AUTO_RECONNECT_WINDOW_MS. Many drops (a brief USB blip, a com0com
+// hiccup, someone briefly closing Docklight) clear up well within that
+// window on their own. The Reconnect/Logout modal only appears once this
+// whole window has passed with no success — not immediately on disconnect.
+function startAutoReconnectWindow(port) {
 
-    setTimeout(async () => {
+    if (!port) {
 
-        // Already handled by the time the timer fires — a manual Reconnect
+        showDisconnectModal();
+
+        return;
+
+    }
+
+    const deadline = Date.now() + AUTO_RECONNECT_WINDOW_MS;
+
+    const attempt = async () => {
+
+        // Already handled by the time this fires — a manual Reconnect
         // succeeded, the operator logged out, or a fresh connection is
         // already open — so don't step on any of that.
         if (loggingOut || realDeviceConnected) return;
@@ -973,13 +993,25 @@ function scheduleAutoReconnect(port) {
             showStatus("🔌 Device Reconnected Automatically", "success");
             logEvent("🔌 Real Device Reconnected Automatically", "success");
 
+            return;
+
         }
 
-        // Failed — leave the disconnect modal up exactly as it was; the
-        // operator can still Reconnect (picks a port, possibly a new one)
-        // or Logout. Only one automatic attempt, not a retry loop.
+        if (Date.now() >= deadline) {
 
-    }, 10000);
+            logEvent("⚠ Automatic Reconnect Gave Up After 5 Minutes", "error");
+
+            showDisconnectModal();
+
+            return;
+
+        }
+
+        setTimeout(attempt, AUTO_RECONNECT_INTERVAL_MS);
+
+    };
+
+    setTimeout(attempt, AUTO_RECONNECT_INTERVAL_MS);
 
 }
 
@@ -6674,45 +6706,63 @@ function hideDisconnectModal() {
 
 async function reconnectRealDevice() {
 
-    // ALWAYS ask which port, and open exactly the one chosen. This runs from
-    // the Reconnect button click — a user gesture — so requestPort() is
-    // allowed here.
+    // Try the SAME port first — no picker, straight to that port — since
+    // that's what actually dropped and is by far the common case. Only
+    // fall back to asking which port (the native picker, needing this
+    // click as its user gesture) if that port is unknown or refuses to
+    // reopen, e.g. it genuinely changed or was never granted in this tab.
     //
-    // It used to throw the picker's answer away and then open whichever
-    // authorised port happened to open first. So picking the board could
-    // still land on a stale port from an earlier session: it opens, reports
-    // "Connected", carries no data, and drops straight back to
-    // "Device Disconnected".
-    let chosen;
-
-    try {
-
-        chosen = await navigator.serial.requestPort();
-
-    }
-
-    catch (error) {
-
-        // The user dismissed the port picker — leave the dialog up so they
-        // can try again or log out.
-        showStatus("Reconnect cancelled", "stop");
-
-        return;
-
-    }
-
-    // The OS can take a moment to fully release the port right after a
+    // The OS can take a moment to fully release a port right after a
     // disconnect (com0com virtual pairs especially) — a reconnect attempted
     // in that window fails with "in use" even though nothing else is
     // actually holding it. Retry a couple of times with a short pause
-    // before reporting failure, instead of giving up on the first try.
+    // before giving up on this port and falling back to the picker.
     let opened = false;
 
-    for (let attempt = 1; attempt <= 3 && !opened; attempt++) {
+    if (lastKnownPort) {
 
-        opened = await connectToPort(chosen);
+        for (let attempt = 1; attempt <= 3 && !opened; attempt++) {
 
-        if (!opened && attempt < 3) await new Promise(r => setTimeout(r, 500));
+            opened = await connectToPort(lastKnownPort);
+
+            if (!opened && attempt < 3) await new Promise(r => setTimeout(r, 500));
+
+        }
+
+    }
+
+    if (!opened) {
+
+        // It used to throw the picker's answer away and then open whichever
+        // authorised port happened to open first. So picking the board could
+        // still land on a stale port from an earlier session: it opens, reports
+        // "Connected", carries no data, and drops straight back to
+        // "Device Disconnected".
+        let chosen;
+
+        try {
+
+            chosen = await navigator.serial.requestPort();
+
+        }
+
+        catch (error) {
+
+            // The user dismissed the port picker — leave the dialog up so they
+            // can try again or log out.
+            showStatus("Reconnect cancelled", "stop");
+
+            return;
+
+        }
+
+        for (let attempt = 1; attempt <= 3 && !opened; attempt++) {
+
+            opened = await connectToPort(chosen);
+
+            if (!opened && attempt < 3) await new Promise(r => setTimeout(r, 500));
+
+        }
 
     }
 
