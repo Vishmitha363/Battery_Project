@@ -6999,6 +6999,17 @@ const GRAPH_GROUP_NAME  = { normal: "Normal",  dis: "Discharging", chg: "Chargin
 // so the per-tick live refreshes don't re-trigger the intro every 1.5 s.
 let graphAnimate = false;
 
+// Marks whichever left-sidebar button was just clicked as the active one,
+// clearing that highlight off every other button — Dashboard no longer
+// stays blue forever regardless of what's actually clicked.
+function setSidebarActive(btn) {
+
+    document.querySelectorAll(".side-btn").forEach(b => b.classList.remove("active"));
+
+    if (btn) btn.classList.add("active");
+
+}
+
 // The graph is embedded inline on the dashboard; "open" just scrolls to it.
 function openGraph() {
 

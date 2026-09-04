@@ -157,7 +157,7 @@ async function hashPasskey(text) {
 // ==========================================
 
 keyPanel.innerHTML = `
-    <h3>🔑 Enter Your Passkey</h3>
+    <h3>Enter Your Passkey</h3>
     <div class="field-wrap">
         <span class="field-icon">🔒</span>
         <input type="password" id="passkeyInput" placeholder="Enter your passkey" autocomplete="off">

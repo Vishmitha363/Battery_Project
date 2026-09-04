@@ -268,37 +268,9 @@ body{
 /* Left-column order: BMS Controls (0), then Voltage/Current/Power + quick
    controls row, then Battery Statistics, then the Activity Log. */
 /* Left column order: Balancer Control (0) → Battery Statistics (1) →
-   Activity Log (2) → Current/EQ/Automatic buttons (3). */
+   Activity Log (2). */
 .left-column #stats{ order:1; }
 .left-column .activity-log{ order:2; }
-.left-column .tp-row{ order:3; }
-
-/* Quick-control buttons — a full-width row of three EQUAL-width buttons.
-   min-width:0 lets each shrink to the same 1/3 share; without it the
-   longest label (CURRENT ZERO) forces its button wider than the rest. */
-.tp-row .bottom-controls{
-
-    display:grid;
-
-    grid-template-columns:1fr 1fr;
-
-    gap:8px;
-
-}
-
-.tp-row .bottom-controls button{
-
-    min-width:0;
-
-    padding-left:8px;
-
-    padding-right:8px;
-
-    justify-content:center;
-
-    white-space:nowrap;
-
-}
 
 .left-column{
 
@@ -776,33 +748,6 @@ body{
 
 }
 
-/* Bottom bar: the action buttons and the status indicators on ONE line —
-   controls on the left half, status badges on the right half. */
-
-.bottom-bar{
-
-    display:flex;
-
-    align-items:center;
-
-    flex-wrap:wrap;
-
-    gap:8px;
-
-    margin-bottom:6px;
-
-}
-
-/* Compact single-line toolbar: controls packed on the left, status
-   badges pushed to the right — a thin list instead of tall pill boxes. */
-.bottom-bar .bottom-controls,
-.bottom-bar .status-row{
-
-    flex:0 0 auto;
-
-    margin-bottom:0;
-
-}
 
 /* Status/warning indicators — a compact list pushed to the right edge. */
 
@@ -1880,69 +1825,6 @@ body{
    STATISTICS PANEL
 ========================================== */
 
-/* Bottom action bar — Current Zero / Equalization Setting / Automatic
-   Equalization, moved out of the left panel to the foot of the page. */
-
-.bottom-controls{
-
-    display:flex;
-
-    gap:8px;
-
-    margin-bottom:0;
-
-}
-
-.bottom-controls button{
-
-    display:flex;
-
-    align-items:center;
-
-    justify-content:center;
-
-    gap:6px;
-
-    padding:4px 12px;
-
-    background:var(--navy-700);
-
-    color:var(--text);
-
-    border:1px solid var(--border);
-
-    border-radius:8px;
-
-    font-size:10px;
-
-    font-weight:700;
-
-    letter-spacing:.3px;
-
-    cursor:pointer;
-
-    box-shadow:0 4px 20px rgba(15,23,42,.06);
-
-    transition:transform .15s, box-shadow .15s, background .15s;
-
-}
-
-.bottom-controls button:hover{
-
-    background:#e6edf5;
-
-    border-color:rgba(14,116,144,.35);
-
-    transform:translateY(-1px);
-
-}
-
-.bottom-controls .btn-icon{
-
-    background:rgba(14,116,144,.12);
-
-}
-
 .stats-bar{
 
     margin-bottom:10px;
@@ -2884,12 +2766,6 @@ button:disabled{
 
     }
 
-    .bottom-controls{
-
-        grid-template-columns:1fr;
-
-    }
-
 }
 
 /* ==========================================
@@ -3696,8 +3572,6 @@ button:disabled{
 .stat-value{ font-size:17px; }
 .stat-sub{ font-size:13px; }
 
-/* Current Zero / EQ Setting / Automatic */
-.bottom-controls button{ font-size:12.5px; }
 
 
 /* ==========================================
@@ -4483,7 +4357,6 @@ button:disabled{
     border:1px solid #e2e8f0 !important;
     box-shadow:0 4px 16px rgba(15,23,42,.06) !important;
 }
-.bottom-controls button{ box-shadow:0 2px 6px rgba(15,23,42,.08) !important; }
 
 /* Running Time / Completes box — calm light inset. */
 .timer-box,
@@ -4579,13 +4452,13 @@ button:disabled{
 
 /* ---- Sidebar ---- */
 .app-sidebar{
-    flex:0 0 66px;
-    background:linear-gradient(180deg,#0e2036 0%,#0a1626 100%);
+    flex:0 0 128px;
+    background:linear-gradient(180deg,#1a3a5c 0%,#132540 100%);
     display:flex;
     flex-direction:column;
-    align-items:center;
+    align-items:stretch;
     gap:10px;
-    padding:16px 0;
+    padding:16px 8px;
     position:sticky;
     top:0;
     /* divide by the zoom so, after the shell's zoom scales it, it equals one
@@ -4595,14 +4468,14 @@ button:disabled{
 .side-logo{
     width:40px;height:40px;border-radius:12px;
     background:#0e7490;color:#fff;font-weight:800;font-size:18px;
-    display:flex;align-items:center;justify-content:center;overflow:hidden;margin-bottom:12px;
+    display:flex;align-items:center;justify-content:center;overflow:hidden;margin:0 auto 12px;
 }
 .side-logo img{ width:100%;height:100%;object-fit:contain;padding:4px; }
-.side-nav{ display:flex;flex-direction:column;gap:8px;width:100%;align-items:center; }
+.side-nav{ display:flex;flex-direction:column;gap:8px;width:100%; }
 .side-btn{
-    width:42px;height:42px;border-radius:12px;border:none;cursor:pointer;
-    background:transparent;color:#93a7c4;font-size:18px;
-    display:flex;align-items:center;justify-content:center;transition:all .15s ease;
+    width:100%;padding:10px 10px;border-radius:10px;border:none;cursor:pointer;
+    background:transparent;color:#93a7c4;font-size:12px;font-weight:700;text-align:left;
+    display:flex;align-items:center;transition:all .15s ease;
 }
 .side-btn:hover{ background:rgba(255,255,255,.08);color:#fff; }
 .side-btn.active{ background:#0e7490;color:#fff; box-shadow:0 6px 16px rgba(14,116,144,.4); }
@@ -4674,7 +4547,7 @@ button:disabled{
 .app-main .left-column #stats{ order:1; }
 .app-main .left-column .left-panel{ order:2; }
 .app-main .left-column .activity-log{ order:3; }
-.app-main .left-column .tp-row{ order:4; }
+.app-main .left-column .status-row{ order:4;margin-top:0; }
 .dash-center{ flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:16px; }
 
 /* ---- Generic card ---- */
@@ -5010,9 +4883,6 @@ button:disabled{
 .csp-table td.csp-over{ color:#dc2626 !important;background:#fde8e8; }
 .summary-label{ font-size:11px;font-weight:600;color:var(--text-dim);margin-bottom:4px; }
 .summary-val{ font-size:15px;font-weight:800;color:#0f2740; }
-
-/* ---- Bottom status bar ---- */
-.app-main .bottom-bar{ margin-top:14px; }
 
 /* Responsive: stack columns on narrow screens */
 @media (max-width:1200px){
