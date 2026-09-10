@@ -5284,10 +5284,9 @@ function checkWarnings() {
     // All cells reading 0V means "no real data right now" — either nothing
     // has arrived yet, or a real disconnect just zeroed the pack — not 16
     // cells genuinely under-voltage. New OV/UV faults and "Balancing
-    // Successful" are only ever detected
-    // from a real reading; existing fault state stays frozen as-is until
-    // real data resumes, rather than being false-derived from the zeroed
-    // placeholder.
+    // Successful" are only ever detected from a real reading; existing
+    // fault state stays frozen as-is until real data resumes, rather than
+    // being false-derived from the zeroed placeholder.
     const hasData = cellVoltages.length > 0 && Math.max(...cellVoltages) > 0;
 
     // Same freezing as the OV/UV faults above: without real data, reuse the
