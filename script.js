@@ -531,19 +531,11 @@ const MAX_BREAK_RECOVERY = 5;
 // When the board last sent a frame we could read cell voltages from.
 // null means "connected, but has never sent one". A board that goes
 // quiet leaves the cells frozen on its last reading — indistinguishable
-// from a stalled balancer unless we surface this.
+// from a stalled balancer unless we surface this. Purely informational
+// (the "last frame Ns ago" display) — a real device is only ever treated
+// as disconnected by an actual physical unplug, never by data going
+// stale while the port stays open.
 let lastCellFrameAt = null;
-
-// When the current port was opened — the countdown for
-// CELL_FRAME_TIMEOUT_MS starts here if no $CELL frame ever arrives at all.
-let deviceConnectedAt = null;
-
-// 30s with no $CELL frame (never received one since connecting, OR one
-// arrived before but stopped) means the link is dead even though the port
-// is still technically open — zero the cells and ask the operator to
-// reconnect rather than leave stale/frozen readings on screen forever.
-const CELL_FRAME_TIMEOUT_MS = 30000;
-let cellFrameTimeoutTriggered = false;
 
 // The ALERT PIN indicator: green (normal) until the board's watchdog
 // warning arrives, then red until the user clicks to acknowledge.
@@ -764,8 +756,6 @@ async function connectToPort(candidate) {
     // A fresh connection has heard nothing yet, whatever an earlier
     // one may have heard.
     lastCellFrameAt = null;
-    deviceConnectedAt = Date.now();
-    cellFrameTimeoutTriggered = false;
 
     // Deliberately NOT disabling simulation or zeroing the cells here.
     // An open port is not a source of cell voltages — it may lead to
@@ -1850,7 +1840,6 @@ function applyRealDeviceLine(message) {
     cellVoltages = updated;
 
     lastCellFrameAt = Date.now();
-    cellFrameTimeoutTriggered = false;
 
     // A good frame got through — clear the break-retry count so an occasional
     // future glitch still gets its full allowance of reconnects.
@@ -3785,49 +3774,11 @@ function bleedPerTick() {
 //   - frames went stale   -> it sent some, then stopped
 //   - frames still fresh  -> it IS sending, the numbers just aren't moving,
 //                            which means the balancer isn't doing anything
-// Zeros the cells and puts up the reconnect prompt once CELL_FRAME_TIMEOUT_MS
-// passes with no $CELL frame getting through — whether none ever arrived
-// since the port was opened, or one arrived earlier and then stopped. An
-// open port with nothing usable coming through it is treated the same as a
-// physical disconnect: fires once per connection (cellFrameTimeoutTriggered
-// is reset by connectToPort() and by the next real frame that lands).
-//
-// Real-device sessions only. An Automatic Values (Remote Monitor) session
-// can hold this same port open to stream its own simulated readings OUT to
-// Docklight — that port is deliberately never expected to send $CELL data
-// back, so it must never be treated as a dead connection.
-function checkCellFrameTimeout() {
-
-    if (usingAutomaticValues()) return;
-
-    if (cellFrameTimeoutTriggered) return;
-
-    const reference = lastCellFrameAt !== null ? lastCellFrameAt : deviceConnectedAt;
-
-    if (reference === null || Date.now() - reference < CELL_FRAME_TIMEOUT_MS) return;
-
-    cellFrameTimeoutTriggered = true;
-
-    // Stop treating this connection as a data source — same end state as a
-    // physical disconnect, since 30s of silence from an open real-device
-    // port means nothing usable is coming through it right now.
-    simulationEnabled = false;
-    zeroOutCellVoltages();
-
-    if (running) {
-
-        logEvent("⛔ BMS Auto-Stopped — No Cell Data Received In 30s", "error");
-        stopBMS();
-
-    }
-
-    logEvent("⚠ No Cell Frames Received In 30s — Cells Zeroed, Reconnect Required", "error");
-    showStatus("⚠ No Cell Data — Please Reconnect The Device", "stop");
-
-    showDisconnectModal();
-
-}
-
+// Purely informational — data going stale while the port stays open no
+// longer auto-disconnects on its own. Only a real physical unplug (the
+// serial read loop actually ending) is treated as a disconnect; the
+// operator would rather see stale-but-real numbers than have the session
+// stopped on a guess.
 function updateDeviceFreshness() {
 
     const el = document.getElementById("deviceFreshness");
@@ -3843,8 +3794,6 @@ function updateDeviceFreshness() {
         return;
 
     }
-
-    checkCellFrameTimeout();
 
     if (lastCellFrameAt === null) {
 
@@ -5333,9 +5282,9 @@ function checkWarnings() {
     let countsChanged = false;
 
     // All cells reading 0V means "no real data right now" — either nothing
-    // has arrived yet, or checkCellFrameTimeout() just zeroed the pack
-    // after losing the connection — not 16 cells genuinely under-voltage.
-    // New OV/UV faults and "Balancing Successful" are only ever detected
+    // has arrived yet, or a real disconnect just zeroed the pack — not 16
+    // cells genuinely under-voltage. New OV/UV faults and "Balancing
+    // Successful" are only ever detected
     // from a real reading; existing fault state stays frozen as-is until
     // real data resumes, rather than being false-derived from the zeroed
     // placeholder.

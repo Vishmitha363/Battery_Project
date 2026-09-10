@@ -265,13 +265,6 @@ body{
    LEFT PANEL
 ========================================== */
 
-/* Left-column order: BMS Controls (0), then Voltage/Current/Power + quick
-   controls row, then Battery Statistics, then the Activity Log. */
-/* Left column order: Balancer Control (0) → Battery Statistics (1) →
-   Activity Log (2). */
-.left-column #stats{ order:1; }
-.left-column .activity-log{ order:2; }
-
 .left-column{
 
     width:300px;
@@ -749,11 +742,13 @@ body{
 }
 
 
-/* Status/warning indicators — a compact list pushed to the right edge. */
+/* Status/warning indicators — now in the left column, below Activity Log. */
 
 .status-row{
 
     display:flex;
+
+    flex-wrap:wrap;
 
     gap:8px;
 
@@ -764,6 +759,8 @@ body{
 
     width:auto;
 
+    flex:0 0 auto;
+
     margin:0;
 
     padding:4px 7px;
@@ -773,6 +770,8 @@ body{
     gap:4px;
 
     justify-content:center;
+
+    white-space:nowrap;
 
 }
 
