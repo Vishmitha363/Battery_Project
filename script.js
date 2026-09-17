@@ -1260,13 +1260,6 @@ function detectParamsReport() {
 // $CELL01:3500mV,CELL02:3400mV,CELL03:3600mV,CELL04:3600mV,CELL05:3200mV#
 function handleRealDeviceChunk(chunk) {
 
-    // TEMP DIAGNOSTIC — shows exactly what bytes arrive from the real
-    // device, regardless of whether they match the expected $...# framing.
-    // JSON.stringify reveals hidden/garbled characters (wrong baud rate
-    // shows up as junk symbols here) that a plain console.log would hide.
-    // Remove once the real-hardware connection is confirmed working.
-    console.log("Raw chunk from device:", JSON.stringify(chunk));
-
     // Plain-text status messages (watchdog / AFE / balancer) are detected
     // on a SEPARATE rolling buffer, NOT on realLineBuffer. The $...# frame
     // parser below discards any text before a "$", so a status line that a
@@ -3946,11 +3939,7 @@ function balanceRateIsMeasured() {
 
 // Seconds until no cell sits above the Starting Voltage. Returns null
 // when it cannot be estimated honestly — no rate, or nothing to balance.
-//
-// Exactly one cell discharges at a time, because balancing runs between
-// two cells. So the pack sheds its whole excess at that single rate,
-// however many cells are over the threshold — they simply take turns.
-// Works for both Active and Passive.
+// Passive uses charge (Ah) from the LFP curve; Active uses a voltage rate.
 function estimateBalanceSeconds() {
 
     // Completion time is built from four things:
@@ -3989,42 +3978,80 @@ function estimateBalanceSeconds() {
 
     if (difference <= 0) return null;
 
-    // Pure balancing time if the balancer ran non-stop.
-    //
-    // Same formula for both modes — Passive bleeds each eligible cell
-    // through its OWN independent resistor at the configured current, so
-    // the highest cell's own time to close its own excess depends only on
-    // its own rate, not on how many OTHER cells happen to be bleeding at the
-    // same time (unlike Active's single shared transfer path). Dividing by
-    // how many cells are concurrently eligible was tried here before and
-    // removed — it made the estimate arbitrarily more optimistic the more
-    // cells were eligible, without modeling anything physically real, since
-    // parallel per-cell resistors don't speed up any one cell's own drain.
+    const offS = balanceOffSeconds();
+
+    // Passive: charge-based. Balancing removes charge, not voltage, so the
+    // highest cell's excess is converted to Ah via the LFP curve, divided by
+    // the bleed current, then stretched by each stage's ON/OFF duty cycle.
+    // Each cell bleeds through its own resistor, so only the highest cell's
+    // own time matters — other cells bleeding alongside don't speed it up.
+    if (balancingMode === "passive") {
+
+        const boundary = passiveStageBoundary(startVoltage);
+
+        const ahBetween = (hi, lo) =>
+            Math.max(0, lfpSocPercent(hi) - lfpSocPercent(lo)) / 100 * CELL_CAPACITY_AH;
+
+        const stage1Ah = maxV > boundary ? ahBetween(maxV, boundary) : 0;
+        const stage2Ah = ahBetween(Math.min(maxV, boundary), startVoltage);
+
+        const withRests = (activeS, onS) => onS > 0 ? activeS * (onS + offS) / onS : activeS;
+
+        const total =
+            withRests(stage1Ah / current * 3600, passiveOnSecondsForVoltage(boundary, startVoltage)) +
+            withRests(stage2Ah / current * 3600, passiveOnSecondsForVoltage(startVoltage, startVoltage));
+
+        // Near the top of the curve a real voltage gap can hold almost no
+        // charge — still allow at least one ON burst rather than "now".
+        return Math.max(total, passiveOnSecondsForVoltage(maxV, startVoltage));
+
+    }
+
+    // Active: voltage-rate based. Pure balancing time if the sender drained
+    // non-stop, then one OFF gap after each full ON block but the last, so
+    // the wall-clock finish time includes the rests.
     const pureSeconds = difference / rate;
 
-    // 2 & 3. Duty cycle: balance for ON seconds, rest for OFF seconds,
-    // repeating. Add one OFF gap after each full ON block but the last, so
-    // the wall-clock finish time includes the rests. Passive has no single
-    // fixed ON time (each cell tapers between Stage 1 and Stage 2), so a
-    // representative burst length is used here — the taper evaluated at the
-    // current highest cell, same formula advancePassiveCellTimers() uses per
-    // cell. No special-cased fixed budget for either stage — this is the
-    // same rate-based math throughout.
-    const onS = balancingMode === "passive"
-        ? passiveOnSecondsForVoltage(maxV, startVoltage)
-        : balanceOnSeconds();
-
-    const offS = balanceOffSeconds();
+    const onS = balanceOnSeconds();
 
     const gaps = Math.max(0, Math.ceil(pureSeconds / onS) - 1);
 
-    const estimate = pureSeconds + gaps * offS;
+    return pureSeconds + gaps * offS;
 
-    // Passive gets an extra 30-minute buffer on top of the raw calculation
-    // — the taper/concurrency approximations above are rougher for Passive
-    // than Active's single-pair math, so this pads the projection to be
-    // less likely to under-promise.
-    return balancingMode === "passive" ? estimate + 30 * 60 : estimate;
+}
+
+// Capacity of each cell, used for the Passive charge-based time estimate.
+const CELL_CAPACITY_AH = 40;
+
+// Typical LFP resting voltage vs state of charge (%). Very flat through the
+// middle, steep at both ends — so a few mV mid-range is a lot of charge.
+const LFP_OCV_CURVE = [
+    [2.50, 0], [2.80, 2], [3.00, 5], [3.13, 9], [3.20, 14], [3.25, 20],
+    [3.28, 30], [3.30, 40], [3.31, 50], [3.32, 60], [3.33, 70], [3.34, 80],
+    [3.35, 90], [3.38, 95], [3.40, 98], [3.45, 99], [3.60, 99.8], [3.65, 100]
+];
+
+function lfpSocPercent(voltage) {
+
+    const c = LFP_OCV_CURVE;
+
+    if (voltage <= c[0][0]) return c[0][1];
+    if (voltage >= c[c.length - 1][0]) return c[c.length - 1][1];
+
+    for (let i = 1; i < c.length; i++) {
+
+        if (voltage <= c[i][0]) {
+
+            const [v0, s0] = c[i - 1];
+            const [v1, s1] = c[i];
+
+            return s0 + (s1 - s0) * (voltage - v0) / (v1 - v0);
+
+        }
+
+    }
+
+    return c[c.length - 1][1];
 
 }
 
@@ -4370,10 +4397,18 @@ function balanceCompletionClock() {
 
     if (balanceDeadlineAt === null) return null;
 
-    return new Date(balanceDeadlineAt).toLocaleTimeString([], {
+    const finish = new Date(balanceDeadlineAt);
+
+    const time = finish.toLocaleTimeString([], {
         hour: "numeric",
         minute: "2-digit"
     });
+
+    // Passive estimates can run many hours — name the day when it isn't
+    // today, so "3:40 PM" is never mistaken for this afternoon.
+    if (finish.toDateString() === new Date().toDateString()) return time;
+
+    return finish.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }) + ", " + time;
 
 }
 
