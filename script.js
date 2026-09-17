@@ -783,10 +783,30 @@ async function autoConnectRealDevice() {
 
     }
 
-    // Try EVERY authorised port, not just the first. The browser remembers
-    // every port ever granted, so ports[0] is often a stale one from an
-    // earlier session rather than the board just connected at login.
-    for (const candidate of ports) {
+    // Prefer the exact device picked at login (by USB vendor/product id). If
+    // it's among the authorised ports, try ONLY that one — silently falling
+    // back to another port (like the PC's built-in COM1) would show
+    // "Connected" while nothing ever arrives. With no match (e.g. a virtual
+    // com0com port, which has no USB id), try every authorised port, since
+    // the browser remembers every port ever granted and ports[0] is often a
+    // stale one from an earlier session.
+    let saved = null;
+
+    try { saved = JSON.parse(localStorage.getItem("bmsPortInfo")); }
+    catch (e) { saved = null; }
+
+    const isPicked = p => {
+        const info = p.getInfo();
+        return !!saved && saved.usbVendorId !== undefined &&
+            info.usbVendorId === saved.usbVendorId &&
+            info.usbProductId === saved.usbProductId;
+    };
+
+    const picked = ports.filter(isPicked);
+
+    const candidates = picked.length ? picked : ports;
+
+    for (const candidate of candidates) {
 
         if (await connectToPort(candidate)) {
 

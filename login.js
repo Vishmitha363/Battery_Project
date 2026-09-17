@@ -245,6 +245,13 @@ async function openSerialPicker() {
 
         setUsbStatus(true);
 
+        // The browser can't hand the chosen port itself to the dashboard, so
+        // remember its USB identity instead — otherwise the dashboard reopens
+        // whichever authorised port opens first (e.g. the PC's built-in COM1)
+        // rather than the device actually picked here.
+        try { localStorage.setItem("bmsPortInfo", JSON.stringify(port.getInfo())); }
+        catch (e) { /* storage blocked — dashboard falls back to any authorised port */ }
+
         loginBtn.disabled = false;
 
         // A real device takes priority over a previously chosen
