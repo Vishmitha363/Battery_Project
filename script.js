@@ -1240,6 +1240,13 @@ function detectParamsReport() {
 // $CELL01:3500mV,CELL02:3400mV,CELL03:3600mV,CELL04:3600mV,CELL05:3200mV#
 function handleRealDeviceChunk(chunk) {
 
+    // TEMP DIAGNOSTIC — shows exactly what bytes arrive from the real
+    // device, regardless of whether they match the expected $...# framing.
+    // JSON.stringify reveals hidden/garbled characters (wrong baud rate
+    // shows up as junk symbols here) that a plain console.log would hide.
+    // Remove once the real-hardware connection is confirmed working.
+    console.log("Raw chunk from device:", JSON.stringify(chunk));
+
     // Plain-text status messages (watchdog / AFE / balancer) are detected
     // on a SEPARATE rolling buffer, NOT on realLineBuffer. The $...# frame
     // parser below discards any text before a "$", so a status line that a
