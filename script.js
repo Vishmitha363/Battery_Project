@@ -3369,14 +3369,14 @@ async function startBMS(transmit = true) {
 
     }
 
-    // An under-voltage cell blocks the whole session, not just balancing:
-    // START drives the balancer, and balancing drains the highest cell into
-    // the lowest — which would pull charge toward a cell already below its
-    // safe limit. Refuse here, before anything starts, so the fault has to
-    // be cleared first.
+    // An under-voltage cell blocks the whole session in Active mode: START
+    // drives the balancer, and Active drains the highest cell into the
+    // lowest — which would pull charge toward a cell already below its safe
+    // limit. Passive is exempt: it only bleeds cells above eqLow and never
+    // charges anything, so an under-voltage cell is simply left untouched.
     const under = underVoltageCells();
 
-    if (under.length) {
+    if (under.length && balancingMode !== "passive") {
 
         showStatus(`⛔ Cannot Start — Under-Voltage On Cell ${under.join(", ")}`, "stop");
         logEvent(`⛔ START Refused — Under-Voltage On Cell ${under.join(", ")}`, "error");
@@ -4218,11 +4218,13 @@ function advancePassiveCellTimers() {
         // was actually being bled during a rest anyway.
         const resting = t && t.phase === "off";
 
-        const eligible = resting
+        // An under-voltage cell is never bled, even if eqLow was set below
+        // the UV limit — balancing carries on for every other cell.
+        const eligible = !cellUVFault[i] && (resting
             ? cellVoltages[i] > startVoltage
             : anyStage1
                 ? cellVoltages[i] >= stage1Boundary
-                : cellVoltages[i] > startVoltage;
+                : cellVoltages[i] > startVoltage);
 
         // Not currently eligible — either settled, never qualified, or
         // paused by the Stage 1/2 priority gate above. Drop its timer so
@@ -6164,13 +6166,14 @@ async function startBalancing(transmit = true) {
 
     }
 
-    // Refuse to balance a pack with an under-voltage cell. Balancing drains
-    // the highest cell into the lowest, so running it now would pull charge
-    // toward a cell that is already below its safe limit — the fault has to
-    // be dealt with first.
+    // Refuse to balance a pack with an under-voltage cell in Active mode.
+    // Active drains the highest cell into the lowest, so running it now would
+    // pull charge toward a cell that is already below its safe limit.
+    // Passive is exempt: it only bleeds cells above eqLow, so an
+    // under-voltage cell is never bled and balancing the rest is safe.
     const under = underVoltageCells();
 
-    if (under.length) {
+    if (under.length && balancingMode !== "passive") {
 
         showStatus(`⛔ Balancing Blocked — Under-Voltage On Cell ${under.join(", ")}`, "stop");
         logEvent(`⛔ Balancing Blocked — Under-Voltage On Cell ${under.join(", ")}`, "error");
