@@ -748,6 +748,18 @@ async function connectToPort(candidate) {
 
     }
 
+    // Many USB-serial boards (CP2102 and similar) only start transmitting
+    // once DTR is asserted — native terminal apps like Docklight typically
+    // set this automatically when opening a port, but the Web Serial API
+    // does not do it on its own. Without this, a board can appear
+    // "Connected" here while genuinely never sending a single byte to the
+    // browser, even though the exact same physical connection works fine
+    // in Docklight. Best-effort: some platforms/ports don't support
+    // signal control at all, so a failure here must not abort the
+    // connection — it just means this specific board didn't need it.
+    try { await candidate.setSignals({ dataTerminalReady: true, requestToSend: true }); }
+    catch (error) { console.log("Could not set DTR/RTS signals:", error); }
+
     realPort = candidate;
     lastKnownPort = candidate;
 
